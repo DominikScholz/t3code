@@ -10,7 +10,7 @@ import { AsyncResult } from "effect/unstable/reactivity";
 import { type EnvironmentId, type ProjectIconOverride } from "@t3tools/contracts";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import * as Cause from "effect/Cause";
-import { Trash2Icon } from "lucide-react";
+import { GitBranchIcon, Trash2Icon } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useComposerDraftStore } from "../../composerDraftStore";
@@ -407,6 +407,23 @@ function ProjectDetail({
     <>
       <SettingsPageContainer className="gap-6">
         <SettingsSection id="project-overview" title="Project" hideTitle>
+          <SettingsRow
+            title="Project graph"
+            description="Explore local branches, merge status, threads and worktrees on an infinite canvas."
+          >
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                void navigate({
+                  to: "/project-graph/$projectKey",
+                  params: { projectKey: group.projectKey },
+                })
+              }
+            >
+              <GitBranchIcon className="size-4" /> Open project graph
+            </Button>
+          </SettingsRow>
           <SettingsRow
             title="Name"
             description="The shared name for this project group in the sidebar and thread lists."

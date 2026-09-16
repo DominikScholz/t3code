@@ -61,3 +61,33 @@ with its configured upstream. Choose an environment to set the default or a proj
 T3 Code only pulls when it can fast-forward and the checkout has no changed files, untracked files,
 or local commits. It skips checkouts on another branch or without an upstream. If a checkout has
 local work, resolve it yourself before automatic pulls can resume.
+
+## Project graph
+
+On web and desktop, open **Project graph** from the project picker, Project Settings, or the
+command palette. Colored tracks connect individual commit dots, showing where histories diverge
+and merge. Branches have compact labels with their worktree and thread counts. Branches sharing
+a commit retain separate labels; dotted lines connect those labels to the shared commit.
+Select a dot or label for details and threads. Unsettled thread counts are highlighted.
+For projects with multiple checkouts or environments, choose which checkout to explore.
+
+To see threads from another running T3 Code app, pair it under **Settings → Connections →
+Add environment**, then choose its project in the picker. Threads update live from that app.
+If its version does not support graphs yet, **Read Git from** can use another connected environment
+on the same machine with access to the same checkout path. Thread actions still use the app
+that owns the threads. The graph URL keeps your checkout and Git source selections.
+
+Drag or scroll to pan, pinch or use the zoom buttons to zoom, and press **F** while the canvas
+is focused to fit the graph. Search finds branches, thread titles and worktree paths. Refresh
+reads changes made by external Git tools without fetching from a remote.
+
+**Merged** means the branch tip is reachable from the local default branch, or its remote-tracking
+ref if no local default branch exists. Squash and rebase merges may still appear unmerged.
+Merge status is unknown when the default branch cannot be determined. Large histories are
+loaded 2,000 commits at a time; use **Load older commits** to extend the graph. All local branch
+labels remain visible, including tips outside the loaded history.
+
+Open a worktree's context menu to close it. Closing removes the checkout directory but keeps
+its branch and threads. Git refuses to remove uncommitted or untracked files. Main checkouts,
+locked worktrees and worktrees with running thread sessions cannot be closed here. Threads
+whose worktree or branch disappeared remain visible separately, so unfinished work can be found.

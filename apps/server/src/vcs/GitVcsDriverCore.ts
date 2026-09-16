@@ -31,6 +31,7 @@ import { compactTraceAttributes } from "@t3tools/shared/observability";
 import { decodeJsonResult } from "@t3tools/shared/schemaJson";
 import { gitCommandDuration, gitCommandsTotal, withMetrics } from "../observability/Metrics.ts";
 import * as GitVcsDriver from "./GitVcsDriver.ts";
+import { readProjectGraph } from "./projectGraph.ts";
 import {
   parseRemoteNames,
   parseRemoteNamesInGitOrder,
@@ -3045,6 +3046,9 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         hasPrimaryRemote: snapshot.hasPrimaryRemote,
         nextCursor: refs.nextCursor,
         totalCount: refs.totalCount,
+        ...(input.includeGraph
+          ? { graph: yield* readProjectGraph(input.cwd, execute, input.graphCommitLimit) }
+          : {}),
       };
     },
   );
