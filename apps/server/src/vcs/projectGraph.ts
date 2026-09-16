@@ -86,7 +86,7 @@ export const readProjectGraph = Effect.fn("GitVcsDriver.projectGraph")(function*
         tree.branch === null && /^[a-f0-9]{40,64}$/.test(tree.head) && !/^0+$/.test(tree.head),
     )
     .map((tree) => tree.head);
-  const [mergedResult, history] = yield* Effect.all(
+  const [mergedResult, history, reflog] = yield* Effect.all(
     [
       baseRef === null
         ? Effect.succeed(null)
@@ -103,9 +103,45 @@ export const readProjectGraph = Effect.fn("GitVcsDriver.projectGraph")(function*
             "--format=%H%x00%P%x00%s",
             "--",
           ]),
+      heads.length === 0
+        ? Effect.succeed(null)
+        : run(
+            [
+              "log",
+              "-g",
+              "--date=unix",
+              "--max-count=20000",
+              "--format=%gD%x00%gs",
+              ...heads.map((head) => `refs/heads/${head.name}`),
+              "--",
+            ],
+            true,
+          ),
     ],
     { concurrency: 2 },
   );
+  const origins = new Map<string, string>();
+  const creationTimes = new Map<string, number>();
+  const aliases = new Map(heads.map((head) => [head.name, head.name]));
+  const entries = (reflog?.stdout.split("\n") ?? []).flatMap((line) => {
+    const [selector, subject = ""] = line.split("\0");
+    const name = selector?.match(/^refs\/heads\/(.+)@\{/u)?.[1];
+    if (!name) return [];
+    if (subject.startsWith("branch: Created from ")) {
+      const timestamp = selector?.match(/@\{(\d+)\}$/u)?.[1];
+      if (timestamp && !creationTimes.has(name)) creationTimes.set(name, Number(timestamp));
+    }
+    const renamed = subject.match(/^Branch: renamed refs\/heads\/(.+) to refs\/heads\/(.+)$/u);
+    if (renamed && !aliases.has(renamed[1]!)) aliases.set(renamed[1]!, name);
+    return [{ name, subject }];
+  });
+  for (const { name, subject } of entries) {
+    const source = subject
+      .match(/^branch: Created from (.+)$/u)?.[1]
+      ?.replace(/^refs\/heads\//u, "");
+    const origin = source ? aliases.get(source) : undefined;
+    if (origin && origin !== name && !origins.has(name)) origins.set(name, origin);
+  }
   const merged = new Set(mergedResult?.stdout.trim().split("\n") ?? []);
   const commits = (history?.stdout.trim().split("\n").filter(Boolean) ?? []).map((line) => {
     const [id = "", parents = "", subject = ""] = line.split("\0");
@@ -116,6 +152,10 @@ export const readProjectGraph = Effect.fn("GitVcsDriver.projectGraph")(function*
     branches: heads.map((ref) => ({
       ...ref,
       current: ref.name === currentResult.stdout.trim(),
+      ...(origins.has(ref.name) ? { createdFrom: origins.get(ref.name)! } : {}),
+      ...(creationTimes.has(ref.name)
+        ? { createdAtEpochSeconds: creationTimes.get(ref.name)! }
+        : {}),
       merged: baseRef === null ? null : merged.has(ref.name),
     })),
     commits: commits.slice(0, commitLimit),

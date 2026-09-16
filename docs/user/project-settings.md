@@ -65,9 +65,15 @@ local work, resolve it yourself before automatic pulls can resume.
 ## Project graph
 
 On web and desktop, open **Project graph** from the project picker, Project Settings, or the
-command palette. Colored tracks connect individual commit dots, showing where histories diverge
-and merge. Branches have compact labels with their worktree and thread counts. Branches sharing
-a commit retain separate labels; dotted lines connect those labels to the shared commit.
+command palette. Branch labels have separate entry lanes: the default branch first, then source branches before their
+descendants. Newer sibling branches appear farther right, using creation times from the reflog;
+missing metadata falls back to alphabetical order. Dotted lines connect each label to its tip. Branches sharing a tip
+converge on the originating branch’s track when its origin is recoverable from local reflogs,
+including branch renames. Otherwise the default branch, then alphabetical order, determines
+which branch displays common history. Every commit appears exactly once; solid lines show its
+parent relationships, including real forks and merges. Separate branch names do not imply
+separate commit histories or reveal when a branch name was created. Worktree and thread counts
+remain attached to the individual branch labels.
 Select a dot or label for details and threads. Unsettled thread counts are highlighted.
 For projects with multiple checkouts or environments, choose which checkout to explore.
 

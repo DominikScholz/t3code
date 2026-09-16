@@ -2,6 +2,7 @@ import { normalizeProjectPathForComparison } from "@t3tools/shared/path";
 import type { VcsProjectGraph } from "@t3tools/contracts";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 
+export type GraphStation = { lane: number; x: number; color: string };
 export type GraphNode = {
   id: string;
   commitId: string | null;
@@ -15,10 +16,11 @@ export type GraphNode = {
   height: number;
   color: string;
   kind: "commit" | "ref" | "orphan";
+  stations: GraphStation[];
 };
 export const NODE_WIDTH = 660;
 export const ROW_HEIGHT = 36;
-const LANE_WIDTH = 24;
+const LANE_WIDTH = 112;
 const LINE_COLORS = ["#60a5fa", "#a78bfa", "#34d399", "#fb923c", "#f472b6", "#22d3ee"];
 
 /** Worktree identity wins over stale thread branch metadata after a checkout switch. */
@@ -48,13 +50,13 @@ export function layoutProjectGraph(
         height: ROW_HEIGHT,
         color: LINE_COLORS[0]!,
         kind: commitId === id ? "commit" : commitId ? "ref" : "orphan",
+        stations: [],
       };
       nodes.set(id, node);
     }
     return node;
   };
   const commits = new Map(graph.commits.map((commit) => [commit.id, commit]));
-  const cardsByCommit = new Map<string, GraphNode[]>();
   const ensureCommit = (id: string) => {
     const commit = commits.get(id);
     return ensure(id, commit?.subject, commit?.parents, id);
@@ -66,11 +68,6 @@ export function layoutProjectGraph(
     // An unborn worktree reports an empty or all-zero object id.
     const commit = head && !/^0+$/.test(head) ? ensureCommit(head) : null;
     const card = ensure(id, commit?.subject ?? fallback, commit ? [commit.id] : [], commit?.id);
-    if (commit) {
-      const cards = cardsByCommit.get(commit.id) ?? [];
-      cards.push(card);
-      cardsByCommit.set(commit.id, cards);
-    }
     return card;
   };
   const branchesByName = new Map(
@@ -107,65 +104,126 @@ export function layoutProjectGraph(
           )));
     node.threads.push(thread);
   }
-  // Refs get compact, separate rows. They point at real commits, never stand in for them.
-  const ordered: GraphNode[] = [];
+  const refs = [...nodes.values()].filter(
+    (node) => node.kind !== "commit" && !node.id.startsWith("missing-"),
+  );
+  const refName = (node: GraphNode) => node.branches[0]?.name ?? node.worktrees[0]?.path ?? node.id;
+  refs.sort(
+    (a, b) =>
+      Number(b.branches[0]?.name === graph.defaultBranch) -
+        Number(a.branches[0]?.name === graph.defaultBranch) ||
+      (a.branches[0]?.createdAtEpochSeconds ?? Number.MAX_SAFE_INTEGER) -
+        (b.branches[0]?.createdAtEpochSeconds ?? Number.MAX_SAFE_INTEGER) ||
+      refName(a).localeCompare(refName(b)),
+  );
+  // Keep sources to the left of descendants even if names or timestamps disagree.
+  // Creation time orders siblings; missing provenance falls back to the stable name sort.
+  const lineageOrder: GraphNode[] = [];
+  const visitedRefs = new Set<string>();
+  const appendRef = (ref: GraphNode) => {
+    if (visitedRefs.has(ref.id)) return;
+    visitedRefs.add(ref.id);
+    const originName = ref.branches[0]?.createdFrom;
+    const origin = originName ? branchesByName.get(originName) : undefined;
+    if (origin) appendRef(origin);
+    lineageOrder.push(ref);
+  };
+  const defaultRef = refs.find((ref) => ref.branches[0]?.name === graph.defaultBranch);
+  if (defaultRef) {
+    visitedRefs.add(defaultRef.id);
+    lineageOrder.push(defaultRef);
+  }
+  for (const ref of refs) appendRef(ref);
+  refs.splice(0, refs.length, ...lineageOrder);
+  const lanes: (GraphStation & { id: string; name: string })[] = [];
+  const addLane = (id: string, name: string) => {
+    const lane = {
+      id,
+      name,
+      lane: lanes.length,
+      x: 72 + lanes.length * LANE_WIDTH,
+      color: LINE_COLORS[lanes.length % LINE_COLORS.length]!,
+    };
+    lanes.push(lane);
+    return lane;
+  };
+  const walk = (start: string, lane: GraphStation) => {
+    let id: string | undefined = start;
+    while (id) {
+      const node = nodes.get(id);
+      // A commit is one Git object, even when many branches can reach it.
+      // Joining an assigned node ends this track instead of duplicating its ancestry.
+      if (!node || node.kind !== "commit" || node.stations.length > 0) break;
+      node.stations.push(lane);
+      id = node.parents[0];
+    }
+  };
+  for (const ref of refs) {
+    ref.stations.push(addLane(ref.id, ref.branches[0]?.name ?? "Detached checkout"));
+  }
+  // Claim source-branch ancestry before its descendants. Reflog provenance resolves
+  // equal tips without inventing a separate shared branch or duplicating commits.
+  const assignedRefs = new Set<string>();
+  const assignHistory = (ref: GraphNode) => {
+    if (assignedRefs.has(ref.id)) return;
+    assignedRefs.add(ref.id);
+    const originName = ref.branches[0]?.createdFrom;
+    const origin = originName ? branchesByName.get(originName) : undefined;
+    if (origin) assignHistory(origin);
+    if (ref.commitId) walk(ref.commitId, ref.stations[0]!);
+  };
+  const base = refs.find((ref) => ref.branches[0]?.name === graph.defaultBranch);
+  if (base) {
+    assignedRefs.add(base.id);
+    if (base.commitId) walk(base.commitId, base.stations[0]!);
+  }
+  for (const ref of refs) assignHistory(ref);
+  // Merged ancestry without a live ref still has exactly one track.
   for (const node of nodes.values()) {
-    if (node.kind === "commit") {
-      ordered.push(...(cardsByCommit.get(node.id) ?? []), node);
-    } else if (node.commitId === null) {
-      ordered.push(node);
+    if (node.kind === "commit" && node.stations.length === 0) {
+      walk(node.id, addLane(`history:${node.id}`, "Merged history"));
     }
   }
-  const lanes: (string | null)[] = [];
-  let y = 24;
-  let maxLane = 0;
+  const orphans = [...nodes.values()].filter((node) => node.id.startsWith("missing-"));
+  const ordered = [
+    ...refs,
+    ...[...nodes.values()].filter((node) => node.kind === "commit"),
+    ...orphans,
+  ];
+  let y = 60;
   for (const node of ordered) {
-    let lane = lanes.indexOf(node.id);
-    if (lane < 0) {
-      lane = lanes.indexOf(null);
-      if (lane < 0) lane = lanes.length;
-    }
-    lanes[lane] = null;
-    for (const [index, parent] of node.parents.entries()) {
-      if (lanes.includes(parent)) continue;
-      let target = index === 0 ? lane : lanes.indexOf(null);
-      if (target < 0) target = lanes.length;
-      lanes[target] = parent;
-    }
-    node.x = 32 + lane * LANE_WIDTH;
+    const station = node.stations[0];
+    node.x = station?.x ?? 72;
+    node.color = station?.color ?? LINE_COLORS[0]!;
     node.y = y;
-    node.color = LINE_COLORS[lane % LINE_COLORS.length]!;
     node.threads.sort(
       (a, b) =>
         Number(a.settledAt !== null) - Number(b.settledAt !== null) ||
         b.updatedAt.localeCompare(a.updatedAt),
     );
-    maxLane = Math.max(maxLane, lane, lanes.length - 1);
     y += ROW_HEIGHT;
-  }
-  for (const node of ordered) {
-    if (node.kind === "ref" && node.commitId)
-      node.color = nodes.get(node.commitId)?.color ?? node.color;
   }
   const edges = ordered.flatMap((node) =>
     node.parents.flatMap((parent) => {
       const target = nodes.get(parent);
-      return target
-        ? [
-            {
-              from: node,
-              to: target,
-              color: node.parents.indexOf(parent) === 0 ? node.color : target.color,
-            },
-          ]
-        : [];
+      if (!target) return [];
+      return node.stations.map((station) => {
+        const targetStation =
+          target.stations.find((entry) => entry.lane === station.lane) ?? target.stations[0];
+        return {
+          from: { ...node, x: station.x, color: station.color },
+          to: { ...target, x: targetStation?.x ?? target.x },
+          color: station.color,
+        };
+      });
     }),
   );
   return {
     nodes: ordered,
     edges,
-    labelX: 32 + (maxLane + 1) * LANE_WIDTH + 16,
-    width: 32 + (maxLane + 1) * LANE_WIDTH + NODE_WIDTH + 48,
+    lanes,
+    labelX: 72 + lanes.length * LANE_WIDTH,
+    width: 72 + lanes.length * LANE_WIDTH + NODE_WIDTH + 48,
     height: y + 48,
   };
 }

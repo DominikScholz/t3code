@@ -563,6 +563,28 @@ function GraphCanvas({
           className="absolute left-0 top-0 origin-top-left"
           style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})` }}
         >
+          {layout.lanes.map((lane) => (
+            <Tooltip key={lane.id}>
+              <TooltipTrigger
+                className="absolute w-28 truncate text-center font-mono text-[11px]"
+                style={{ left: lane.x - 56, top: 12, color: lane.color }}
+                onClick={() => {
+                  const node =
+                    layout.nodes.find((entry) => entry.id === lane.id) ??
+                    layout.nodes.find(
+                      (entry) =>
+                        entry.kind === "commit" &&
+                        entry.stations.some((station) => station.lane === lane.lane),
+                    );
+                  if (node) focus(node);
+                }}
+                aria-label={`Branch lane ${lane.name}`}
+              >
+                {lane.name}
+              </TooltipTrigger>
+              <TooltipPopup>{lane.name}</TooltipPopup>
+            </Tooltip>
+          ))}
           <svg
             className="pointer-events-none absolute left-0 top-0 overflow-visible"
             width={1}
@@ -576,7 +598,7 @@ function GraphCanvas({
               )
               .map(({ from, to, color }) => (
                 <path
-                  key={`${from.id}:${to.id}`}
+                  key={`${from.id}:${from.x}:${to.id}:${to.x}`}
                   d={graphEdgePath(from, to)}
                   fill="none"
                   stroke={color}
@@ -734,7 +756,9 @@ function GraphCanvas({
             ? `Merged = reachable from ${graph.defaultBranch}`
             : "No default branch; merge status unknown"}
         </span>
-        <span className="hidden lg:inline">Drag / scroll to pan · pinch to zoom · F to fit</span>
+        <span className="hidden lg:inline">
+          One dot per commit · dotted lines connect branch labels · solid lines show ancestry
+        </span>
         {graph.truncated && (
           <span className="text-amber-500">
             {graph.commits.length.toLocaleString()} commits loaded.
@@ -796,31 +820,39 @@ const GraphRow = memo(function GraphRow({
   const name = branch?.name ?? (node.kind === "ref" ? "Detached HEAD" : node.subject);
   return (
     <div style={{ opacity: dimmed ? 0.25 : 1 }}>
-      <Tooltip>
-        <TooltipTrigger
-          className="absolute flex size-7 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          style={{ left: node.x - 14, top: node.y + ROW_HEIGHT / 2 - 14, color: node.color }}
-          aria-label={`Inspect ${name}`}
-          onClick={() => onSelect(node.id)}
-        >
-          {node.kind === "commit" ? (
-            <span
-              className={`size-2.5 rounded-full border-2 ${selected ? "ring-4 ring-primary/20" : ""}`}
+      {(node.stations.length ? node.stations : [{ lane: -1, x: node.x, color: node.color }]).map(
+        (station) => (
+          <Tooltip key={station.lane}>
+            <TooltipTrigger
+              className="absolute flex size-7 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
               style={{
-                borderColor: node.color,
-                backgroundColor: node.parents.length > 1 ? "var(--background)" : node.color,
+                left: station.x - 14,
+                top: node.y + ROW_HEIGHT / 2 - 14,
+                color: station.color,
               }}
-            />
-          ) : node.kind === "ref" ? (
-            <GitBranchIcon className="size-3.5 bg-background" />
-          ) : (
-            <MessageSquareIcon className="size-3.5 bg-background text-amber-500" />
-          )}
-        </TooltipTrigger>
-        <TooltipPopup>
-          {node.kind === "commit" ? `${node.commitId?.slice(0, 8)} · ${node.subject}` : name}
-        </TooltipPopup>
-      </Tooltip>
+              aria-label={`Inspect ${name}`}
+              onClick={() => onSelect(node.id)}
+            >
+              {node.kind === "commit" ? (
+                <span
+                  className={`size-2.5 rounded-full border-2 ${selected ? "ring-4 ring-primary/20" : ""}`}
+                  style={{
+                    borderColor: station.color,
+                    backgroundColor: node.parents.length > 1 ? "var(--background)" : station.color,
+                  }}
+                />
+              ) : node.kind === "ref" ? (
+                <GitBranchIcon className="size-3.5 bg-background" />
+              ) : (
+                <MessageSquareIcon className="size-3.5 bg-background text-amber-500" />
+              )}
+            </TooltipTrigger>
+            <TooltipPopup>
+              {node.kind === "commit" ? `${node.commitId?.slice(0, 8)} · ${node.subject}` : name}
+            </TooltipPopup>
+          </Tooltip>
+        ),
+      )}
       <div
         className={`absolute flex items-center gap-2 rounded px-2 ${selected ? "bg-primary/10" : "hover:bg-muted/40"}`}
         style={{ left: labelX, top: node.y, height: ROW_HEIGHT, width: NODE_WIDTH }}

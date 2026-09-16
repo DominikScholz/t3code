@@ -880,6 +880,48 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
           assert.isFalse(full.truncated);
         }),
     );
+    it.effect("recovers source branches through reflog renames for branches sharing a tip", () =>
+      Effect.gen(function* () {
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        yield* git(cwd, ["branch", "-M", "main"]);
+        yield* git(cwd, ["checkout", "-b", "dominik/mvp", "main"]);
+        yield* git(cwd, ["commit", "--allow-empty", "-m", "shared feature history"]);
+        yield* git(cwd, ["branch", "temporary-draw", "dominik/mvp"]);
+        yield* git(cwd, ["branch", "temporary-collection", "dominik/mvp"]);
+        yield* git(cwd, ["branch", "-m", "temporary-draw", "cube-draw"]);
+        yield* git(cwd, ["branch", "-m", "temporary-collection", "cube-collection"]);
+        yield* git(cwd, ["branch", "-m", "dominik/mvp", "mvp"]);
+        const graph = (yield* driver.listRefs({ cwd, includeGraph: true })).graph!;
+        assert.equal(
+          graph.branches.find((branch) => branch.name === "cube-draw")?.createdFrom,
+          "mvp",
+        );
+        assert.equal(
+          graph.branches.find((branch) => branch.name === "cube-collection")?.createdFrom,
+          "mvp",
+        );
+        assert.equal(graph.branches.find((branch) => branch.name === "mvp")?.createdFrom, "main");
+        yield* git(cwd, ["reflog", "expire", "--expire=all", "--all"]);
+        const expired = (yield* driver.listRefs({ cwd, includeGraph: true, refresh: true })).graph!;
+        assert.isTrue(
+          graph.branches
+            .filter((branch) => branch.name !== "main")
+            .every(
+              (branch) =>
+                Number.isInteger(branch.createdAtEpochSeconds) && branch.createdAtEpochSeconds! > 0,
+            ),
+        );
+        assert.isTrue(
+          expired.branches.every(
+            (branch) =>
+              branch.createdFrom === undefined && branch.createdAtEpochSeconds === undefined,
+          ),
+        );
+        assert.deepEqual(expired.commits, graph.commits);
+      }),
+    );
     it.effect(
       "does not invent a merge baseline for a repository with a custom initial branch",
       () =>

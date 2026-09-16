@@ -275,6 +275,9 @@ export const VcsProjectGraph = Schema.Struct({
       head: Schema.String,
       current: Schema.Boolean,
       merged: Schema.NullOr(Schema.Boolean),
+      /** Original local branch, when still recoverable from the reflog. */
+      createdFrom: Schema.optional(Schema.String),
+      createdAtEpochSeconds: Schema.optional(NonNegativeInt),
     }),
   ),
   commits: Schema.Array(
