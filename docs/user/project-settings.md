@@ -65,20 +65,17 @@ local work, resolve it yourself before automatic pulls can resume.
 ## Project graph
 
 On web and desktop, open **Project graph** from the project picker, Project Settings, or the
-command palette. Branch labels have separate entry lanes: the default branch first, then source branches before their
-descendants. Newer sibling branches appear farther right, using creation times from the reflog;
-missing metadata falls back to alphabetical order. Dotted lines connect each label to its tip. Branches sharing a tip
-converge on the originating branch’s track when its origin is recoverable from local reflogs,
-including branch renames. Otherwise the default branch, then alphabetical order, determines
-which branch displays common history. Every commit appears exactly once; solid lines show its
-parent relationships, including real forks and merges. Separate branch names do not imply
-separate commit histories or reveal when a branch name was created. Worktree and thread counts
-appear in the lane headers above the graph. Unsettled threads are listed by title there; select
-one to open it. Longer lists scroll within the header. Commit messages sit beside the active
-history tracks, reclaiming space once branch-label connections end. Timeline rows
-contain only commits. Merge connections use the color of the incoming branch. Threads without
-a matching local branch or worktree remain accessible through **Unlinked threads**.
-Select a dot or label for details and threads. Unsettled thread counts are highlighted.
+command palette. Branch labels sit to the left of the compact commit tracks, connected to their
+tip commits. Labels sharing a tip stack together. The default branch stays first, then source
+branches before descendants; newer siblings appear farther right when reflog metadata is available.
+Shared history appears once on its originating branch when recoverable from local reflogs.
+Every commit has one author marker: a public GitHub noreply portrait when available, otherwise
+initials. Hover it for the author and commit details. Solid lines show parent relationships;
+merge connections use the incoming branch’s color.
+Worktree and thread counts appear in each branch label. Unsettled threads are listed by title;
+select one to open it. Longer lists scroll within the label. Commit messages align in a column
+beside the narrow tracks. Threads without a matching local branch or worktree remain accessible
+through **Unlinked threads**. Select an author marker or branch label for details and threads.
 For projects with multiple checkouts or environments, choose which checkout to explore.
 
 To see threads from another running T3 Code app, pair it under **Settings → Connections →

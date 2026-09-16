@@ -7,6 +7,7 @@ export type GraphNode = {
   id: string;
   commitId: string | null;
   subject: string;
+  author?: VcsProjectGraph["commits"][number]["author"];
   parents: readonly string[];
   branches: VcsProjectGraph["branches"][number][];
   worktrees: VcsProjectGraph["worktrees"][number][];
@@ -21,7 +22,9 @@ export type GraphNode = {
 };
 export const NODE_WIDTH = 660;
 export const ROW_HEIGHT = 36;
-const LANE_WIDTH = 112;
+export const BRANCH_LABEL_WIDTH = 248;
+const GRAPH_LEFT = BRANCH_LABEL_WIDTH + 40;
+const LANE_WIDTH = 28;
 const LINE_COLORS = ["#60a5fa", "#a78bfa", "#34d399", "#fb923c", "#f472b6", "#22d3ee"];
 
 /** Worktree identity wins over stale thread branch metadata after a checkout switch. */
@@ -61,7 +64,9 @@ export function layoutProjectGraph(
   const commits = new Map(graph.commits.map((commit) => [commit.id, commit]));
   const ensureCommit = (id: string) => {
     const commit = commits.get(id);
-    return ensure(id, commit?.subject, commit?.parents, id);
+    const node = ensure(id, commit?.subject, commit?.parents, id);
+    if (commit?.author) node.author = commit.author;
+    return node;
   };
   for (const commit of graph.commits) ensureCommit(commit.id);
   const ensureCard = (id: string, head: string, fallback: string) => {
@@ -143,7 +148,7 @@ export function layoutProjectGraph(
       id,
       name,
       lane: lanes.length,
-      x: 72 + lanes.length * LANE_WIDTH,
+      x: GRAPH_LEFT + lanes.length * LANE_WIDTH,
       color: LINE_COLORS[lanes.length % LINE_COLORS.length]!,
     };
     lanes.push(lane);
@@ -192,26 +197,44 @@ export function layoutProjectGraph(
     ...[...nodes.values()].filter((node) => node.kind === "commit"),
     ...orphans,
   ];
-  const unsettledRows = Math.min(
-    4,
-    refs.reduce(
-      (max, ref) => Math.max(max, ref.threads.filter((thread) => thread.settledAt === null).length),
-      0,
-    ),
-  );
-  const commitStart = 132 + unsettledRows * 56;
-  let y = commitStart;
+  const refsByCommit = new Map<string, GraphNode[]>();
+  for (const ref of refs) {
+    ref.height =
+      36 + Math.min(3, ref.threads.filter((thread) => thread.settledAt === null).length) * 24;
+    if (ref.commitId) {
+      const group = refsByCommit.get(ref.commitId) ?? [];
+      group.push(ref);
+      refsByCommit.set(ref.commitId, group);
+    }
+  }
+  let y = 24;
   for (const node of ordered) {
     const station = node.stations[0];
-    node.x = station?.x ?? 72;
+    node.x = station?.x ?? GRAPH_LEFT;
     node.color = station?.color ?? LINE_COLORS[0]!;
-    node.y = node.kind === "commit" ? y : commitStart - ROW_HEIGHT;
     node.threads.sort(
       (a, b) =>
         Number(a.settledAt !== null) - Number(b.settledAt !== null) ||
         b.updatedAt.localeCompare(a.updatedAt),
     );
-    if (node.kind === "commit") y += ROW_HEIGHT;
+    if (node.kind !== "commit") continue;
+    const labels = refsByCommit.get(node.id) ?? [];
+    const rowHeight = Math.max(
+      ROW_HEIGHT,
+      labels.reduce((height, ref) => height + ref.height, 0),
+    );
+    let labelY = y;
+    for (const ref of labels) {
+      ref.y = labelY;
+      labelY += ref.height;
+    }
+    node.y = y + (rowHeight - ROW_HEIGHT) / 2;
+    y += rowHeight;
+  }
+  // Unborn checkouts still have labels, but no fabricated commit or connector.
+  for (const ref of refs.filter((node) => !node.commitId)) {
+    ref.y = y;
+    y += ref.height;
   }
   const edges = ordered.flatMap((node) =>
     node.parents.flatMap((parent) => {
@@ -221,7 +244,11 @@ export function layoutProjectGraph(
         const targetStation =
           target.stations.find((entry) => entry.lane === station.lane) ?? target.stations[0];
         return {
-          from: { ...node, x: station.x, color: station.color },
+          from: {
+            ...node,
+            x: node.kind === "ref" ? BRANCH_LABEL_WIDTH + 8 : station.x,
+            color: station.color,
+          },
           to: { ...target, x: targetStation?.x ?? target.x },
           color:
             node.kind === "commit" && node.parents.indexOf(parent) > 0
@@ -232,31 +259,10 @@ export function layoutProjectGraph(
     }),
   );
   const commitNodes = ordered.filter((node) => node.kind === "commit");
-  // Reserve space only for lines that actually cross a commit's text row.
-  // Bends enter/leave between rows, so ending branch pointers need no empty column.
-  const trackEvents = edges
-    .flatMap(({ from, to }) =>
-      to.y - from.y > ROW_HEIGHT
-        ? [
-            { y: from.y + ROW_HEIGHT, x: Math.max(from.x, to.x), delta: 1 },
-            { y: to.y, x: Math.max(from.x, to.x), delta: -1 },
-          ]
-        : [],
-    )
-    .sort((a, b) => a.y - b.y);
-  const activeTracks = new Map<number, number>();
-  let eventIndex = 0;
-  for (const node of commitNodes) {
-    while (eventIndex < trackEvents.length && trackEvents[eventIndex]!.y <= node.y) {
-      const event = trackEvents[eventIndex++]!;
-      const count = (activeTracks.get(event.x) ?? 0) + event.delta;
-      if (count === 0) activeTracks.delete(event.x);
-      else activeTracks.set(event.x, count);
-    }
-    let rightmost = node.x;
-    for (const x of activeTracks.keys()) rightmost = Math.max(rightmost, x);
-    node.labelX = rightmost + 24;
-  }
+  // A narrow, fixed graph column keeps commit messages aligned like a Git log.
+  const labelX =
+    commitNodes.reduce((rightmost, node) => Math.max(rightmost, node.x), GRAPH_LEFT) + 28;
+  for (const node of commitNodes) node.labelX = labelX;
   return {
     nodes: ordered,
     commitNodes,
@@ -265,7 +271,7 @@ export function layoutProjectGraph(
     lanes,
     width: commitNodes.reduce(
       (width, node) => Math.max(width, node.labelX + NODE_WIDTH + 24),
-      72 + lanes.length * LANE_WIDTH,
+      labelX + NODE_WIDTH + 24,
     ),
     height: y + 48,
   };
@@ -276,6 +282,10 @@ export function graphEdgePath(from: GraphNode, to: GraphNode) {
     y1 = from.y + ROW_HEIGHT / 2;
   const x2 = to.x,
     y2 = to.y + ROW_HEIGHT / 2;
+  if (from.kind === "ref") {
+    const elbow = x1 + (x2 - x1) / 2;
+    return `M ${x1} ${y1} C ${elbow} ${y1}, ${elbow} ${y2}, ${x2} ${y2}`;
+  }
   if (x1 === x2) return `M ${x1} ${y1} V ${y2}`;
   const direction = Math.sign(x2 - x1);
   const radius = Math.min(8, Math.abs(x2 - x1) / 2);
@@ -304,4 +314,17 @@ export function canCloseGraphWorktree(
           thread.backgroundLiveness != null),
     )
   );
+}
+
+/** Only public GitHub noreply identities have a known portrait; other authors stay local. */
+export function graphAuthorIdentity(author: GraphNode["author"]) {
+  const name = author?.name.trim() || "Unknown author";
+  const words = name.split(/\s+/u);
+  const initials = author?.name.trim()
+    ? `${Array.from(words[0]!)[0] ?? ""}${words.length > 1 ? (Array.from(words.at(-1)!)[0] ?? "") : ""}`.toUpperCase()
+    : "?";
+  const login = author?.email.match(
+    /^(?:\d+\+)?([a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?)@users\.noreply\.github\.com$/iu,
+  )?.[1];
+  return { name, initials, avatarUrl: login ? `https://github.com/${login}.png?size=40` : null };
 }

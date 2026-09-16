@@ -100,7 +100,7 @@ export const readProjectGraph = Effect.fn("GitVcsDriver.projectGraph")(function*
             "--topo-order",
             "--parents",
             `--max-count=${commitLimit + 1}`,
-            "--format=%H%x00%P%x00%s",
+            "--format=%H%x00%P%x00%s%x00%aN%x00%aE",
             "--",
           ]),
       heads.length === 0
@@ -144,8 +144,8 @@ export const readProjectGraph = Effect.fn("GitVcsDriver.projectGraph")(function*
   }
   const merged = new Set(mergedResult?.stdout.trim().split("\n") ?? []);
   const commits = (history?.stdout.trim().split("\n").filter(Boolean) ?? []).map((line) => {
-    const [id = "", parents = "", subject = ""] = line.split("\0");
-    return { id, parents: parents.split(" ").filter(Boolean), subject };
+    const [id = "", parents = "", subject = "", name = "", email = ""] = line.split("\0");
+    return { id, parents: parents.split(" ").filter(Boolean), subject, author: { name, email } };
   });
   return {
     defaultBranch,

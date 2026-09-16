@@ -285,6 +285,7 @@ export const VcsProjectGraph = Schema.Struct({
       id: Schema.String,
       parents: Schema.Array(Schema.String),
       subject: Schema.String,
+      author: Schema.optional(Schema.Struct({ name: Schema.String, email: Schema.String })),
     }),
   ),
   worktrees: Schema.Array(

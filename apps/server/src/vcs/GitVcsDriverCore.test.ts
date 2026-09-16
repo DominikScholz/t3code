@@ -860,7 +860,14 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
           const root = yield* git(cwd, ["rev-parse", "HEAD"]);
           yield* git(cwd, ["commit", "--allow-empty", "-m", "ordinary middle commit"]);
           const middle = yield* git(cwd, ["rev-parse", "HEAD"]);
-          yield* git(cwd, ["commit", "--allow-empty", "-m", "tip commit"]);
+          yield* git(cwd, [
+            "commit",
+            "--allow-empty",
+            "--author",
+            "Ada Lovelace <123+octocat@users.noreply.github.com>",
+            "-m",
+            "tip commit",
+          ]);
           const tip = yield* git(cwd, ["rev-parse", "HEAD"]);
           const recent = (yield* driver.listRefs({ cwd, includeGraph: true, graphCommitLimit: 1 }))
             .graph!;
@@ -869,6 +876,10 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
             [tip],
           );
           assert.deepEqual(recent.commits[0]?.parents, [middle]);
+          assert.deepEqual(recent.commits[0]?.author, {
+            name: "Ada Lovelace",
+            email: "123+octocat@users.noreply.github.com",
+          });
           assert.isTrue(recent.truncated);
           const full = (yield* driver.listRefs({ cwd, includeGraph: true, graphCommitLimit: 3 }))
             .graph!;

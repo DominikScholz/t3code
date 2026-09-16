@@ -32,6 +32,8 @@ import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
+  BRANCH_LABEL_WIDTH,
+  graphAuthorIdentity,
   canCloseGraphWorktree,
   layoutProjectGraph,
   graphEdgePath,
@@ -505,7 +507,7 @@ function GraphCanvas({
           aria-pressed={unsettledOnly}
           onClick={() => setUnsettledOnly((value) => !value)}
         >
-          <span className="size-1.5 rounded-full bg-amber-500" />
+          <span className="size-1.5 rounded-full bg-foreground/60" />
           {unsettledCount} unsettled
         </Button>
         {layout.unlinkedNodes.length > 0 && (
@@ -577,19 +579,28 @@ function GraphCanvas({
           className="absolute left-0 top-0 origin-top-left"
           style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})` }}
         >
-          {layout.lanes.map((lane) => (
-            <GraphLaneHeader
-              key={lane.id}
-              lane={lane}
-              node={layout.nodes.find((node) => node.id === lane.id)}
-              defaultBranch={graph.defaultBranch}
-              selected={selectedId === lane.id}
-              dimmed={filtering && !matches.has(lane.id)}
-              onSelect={setSelectedId}
-              onWorktreeMenu={onWorktreeMenu}
-              onOpenThread={onOpenThread}
-            />
-          ))}
+          {layout.lanes
+            .filter((lane) =>
+              layout.nodes.some(
+                (node) =>
+                  node.id === lane.id &&
+                  node.y + node.height >= bounds.top &&
+                  node.y <= bounds.bottom,
+              ),
+            )
+            .map((lane) => (
+              <GraphLaneHeader
+                key={lane.id}
+                lane={lane}
+                node={layout.nodes.find((node) => node.id === lane.id)}
+                defaultBranch={graph.defaultBranch}
+                selected={selectedId === lane.id}
+                dimmed={filtering && !matches.has(lane.id)}
+                onSelect={setSelectedId}
+                onWorktreeMenu={onWorktreeMenu}
+                onOpenThread={onOpenThread}
+              />
+            ))}
           <svg
             className="pointer-events-none absolute left-0 top-0 overflow-visible"
             width={1}
@@ -608,7 +619,6 @@ function GraphCanvas({
                   fill="none"
                   stroke={color}
                   strokeWidth={from.kind === "ref" ? 1.5 : 2.5}
-                  strokeDasharray={from.kind === "ref" ? "3 4" : undefined}
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   opacity={from.kind === "ref" ? 0.5 : 0.85}
@@ -738,7 +748,7 @@ function GraphCanvas({
             >
               <p className="text-xs">{thread.title}</p>
               <p
-                className={`mt-1 text-[11px] ${thread.settledAt === null ? "text-amber-500" : "text-muted-foreground"}`}
+                className={`mt-1 text-[11px] ${thread.settledAt === null ? "text-foreground" : "text-muted-foreground"}`}
               >
                 {thread.settledAt !== null
                   ? "Settled"
@@ -760,10 +770,10 @@ function GraphCanvas({
             : "No default branch; merge status unknown"}
         </span>
         <span className="hidden lg:inline">
-          One dot per commit · dotted lines connect branch labels · solid lines show ancestry
+          One author marker per commit · labels connect to branch tips · lines show ancestry
         </span>
         {graph.truncated && (
-          <span className="text-amber-500">
+          <span className="text-foreground">
             {graph.commits.length.toLocaleString()} commits loaded.
             <button
               className="ml-2 underline underline-offset-4 hover:text-foreground"
@@ -829,94 +839,97 @@ const GraphLaneHeader = memo(function GraphLaneHeader({
       onWorktreeMenu(tree, { x: event.clientX, y: event.clientY });
     else if (node) onSelect(node.id);
   };
+  if (!node) return null;
   return (
     <div
-      className={`absolute flex w-28 flex-col items-center gap-1 rounded py-1 ${selected ? "bg-primary/10" : ""}`}
-      style={{ left: lane.x - 56, top: 8, opacity: dimmed ? 0.3 : 1 }}
+      className={`absolute overflow-hidden rounded-sm border-l-2 ${selected ? "bg-primary/10" : ""}`}
+      style={{
+        left: 8,
+        top: node.y,
+        width: BRANCH_LABEL_WIDTH,
+        height: node.height - 2,
+        borderColor: lane.color,
+        backgroundColor: selected
+          ? undefined
+          : `color-mix(in srgb, ${lane.color} 7%, var(--background))`,
+        opacity: dimmed ? 0.3 : 1,
+      }}
     >
-      <Tooltip>
-        <TooltipTrigger
-          className="w-full truncate text-center font-mono text-[11px]"
-          style={{ color: lane.color }}
-          disabled={!node}
-          onClick={() => node && onSelect(node.id)}
-          aria-label={`Branch lane ${lane.name}`}
-        >
-          {lane.name}
-        </TooltipTrigger>
-        <TooltipPopup>{lane.name}</TooltipPopup>
-      </Tooltip>
-      {branch && (
-        <span className="text-[9px] text-muted-foreground">
-          {branch.name === defaultBranch
-            ? "base"
-            : branch.merged === true
-              ? "merged"
-              : branch.merged === false
-                ? "unmerged"
-                : "unknown"}
-          {branch.current ? " · HEAD" : ""}
-        </span>
-      )}
-      {node && (
-        <div className="flex items-center justify-center gap-1">
-          {node.worktrees.length > 0 && (
-            <Tooltip>
-              <TooltipTrigger
-                className="flex items-center gap-1 rounded px-1.5 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
-                aria-label={`${lane.name}: ${node.worktrees.length} worktree${node.worktrees.length === 1 ? "" : "s"}`}
-                onClick={worktreeMenu}
-                onContextMenu={(event) => {
-                  event.preventDefault();
-                  worktreeMenu(event);
-                }}
-              >
-                <FolderGit2Icon className="size-3" />
-                {node.worktrees.length}
-              </TooltipTrigger>
-              <TooltipPopup>
-                {node.worktrees.map((tree) => (
-                  <div key={tree.path} className="max-w-96 break-all font-mono text-[11px]">
-                    {tree.path}
-                  </div>
-                ))}
-              </TooltipPopup>
-            </Tooltip>
-          )}
-          {node.threads.length > 0 && (
-            <button
-              className={`flex items-center gap-1 rounded px-1.5 py-1 text-[11px] hover:bg-accent ${unsettled ? "text-amber-500" : "text-muted-foreground"}`}
-              aria-label={`${lane.name}: ${node.threads.length} threads, ${unsettled} unsettled`}
-              onClick={() => onSelect(node.id)}
+      <div className="flex h-5 items-center gap-1 px-2">
+        <Tooltip>
+          <TooltipTrigger
+            className="min-w-0 flex-1 truncate text-left font-mono text-[11px]"
+            style={{ color: lane.color }}
+            onClick={() => onSelect(node.id)}
+            aria-label={`Branch lane ${lane.name}`}
+          >
+            {lane.name}
+          </TooltipTrigger>
+          <TooltipPopup>{lane.name}</TooltipPopup>
+        </Tooltip>
+        {node.worktrees.length > 0 && (
+          <Tooltip>
+            <TooltipTrigger
+              className="flex shrink-0 items-center gap-1 rounded px-1 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground"
+              aria-label={`${lane.name}: ${node.worktrees.length} worktree${node.worktrees.length === 1 ? "" : "s"}`}
+              onClick={worktreeMenu}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                worktreeMenu(event);
+              }}
             >
-              <MessageSquareIcon className="size-3" />
-              {node.threads.length}
-            </button>
-          )}
-        </div>
-      )}
-      {unsettled > 0 && (
-        <button
-          className="text-[9px] text-amber-500 hover:underline"
-          onClick={() => node && onSelect(node.id)}
-        >
-          {unsettled} unsettled
-        </button>
-      )}
+              <FolderGit2Icon className="size-3" />
+              {node.worktrees.length}
+            </TooltipTrigger>
+            <TooltipPopup>
+              {node.worktrees.map((tree) => (
+                <div key={tree.path} className="max-w-96 break-all font-mono text-[11px]">
+                  {tree.path}
+                </div>
+              ))}
+            </TooltipPopup>
+          </Tooltip>
+        )}
+        {node.threads.length > 0 && (
+          <button
+            className="flex shrink-0 items-center gap-1 rounded px-1 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground"
+            aria-label={`${lane.name}: ${node.threads.length} threads, ${unsettled} unsettled`}
+            onClick={() => onSelect(node.id)}
+          >
+            <MessageSquareIcon className="size-3" />
+            {node.threads.length}
+          </button>
+        )}
+      </div>
+      <div className="flex h-4 items-center gap-2 px-2 text-[9px] text-muted-foreground">
+        {branch && (
+          <span>
+            {branch.name === defaultBranch
+              ? "base"
+              : branch.merged === true
+                ? "merged"
+                : branch.merged === false
+                  ? "unmerged"
+                  : "unknown"}
+            {branch.current ? " · HEAD" : ""}
+          </span>
+        )}
+        {unsettled > 0 && <span className="ml-auto text-foreground/80">{unsettled} unsettled</span>}
+      </div>
       {unsettledThreads.length > 0 && (
         <div
           data-graph-thread-list
-          className="w-full max-h-56 overflow-y-auto overscroll-contain px-1"
+          className="max-h-[72px] overflow-y-auto overscroll-contain px-1"
         >
           {unsettledThreads.map((thread) => (
             <Tooltip key={thread.id}>
               <TooltipTrigger
-                className="flex h-14 w-full items-center gap-1 rounded px-1 text-left text-[10px] leading-4 text-amber-500 hover:bg-accent"
+                className="flex h-6 w-full items-center gap-1.5 rounded px-1 text-left text-[10px] text-foreground/85 hover:bg-accent"
                 aria-label={`Open unsettled thread: ${thread.title}`}
                 onClick={() => onOpenThread(thread)}
               >
-                <MessageSquareIcon className="size-3 shrink-0 self-start mt-1" />
-                <span className="line-clamp-3">{thread.title}</span>
+                <MessageSquareIcon className="size-3 shrink-0" />
+                <span className="truncate">{thread.title}</span>
               </TooltipTrigger>
               <TooltipPopup>{thread.title}</TooltipPopup>
             </Tooltip>
@@ -940,24 +953,39 @@ const GraphRow = memo(function GraphRow({
   dimmed: boolean;
   onSelect: (id: string) => void;
 }) {
+  const author = graphAuthorIdentity(node.author);
+  const [failedAvatar, setFailedAvatar] = useState<string | null>(null);
   return (
     <div style={{ opacity: dimmed ? 0.25 : 1 }}>
       <Tooltip>
         <TooltipTrigger
           className="absolute flex size-7 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
           style={{ left: node.x - 14, top: node.y + ROW_HEIGHT / 2 - 14 }}
-          aria-label={`Inspect ${node.subject}`}
+          aria-label={`Inspect ${node.subject}, by ${author.name}`}
           onClick={() => onSelect(node.id)}
         >
           <span
-            className={`size-2.5 rounded-full border-2 ${selected ? "ring-4 ring-primary/20" : ""}`}
-            style={{
-              borderColor: node.color,
-              backgroundColor: node.parents.length > 1 ? "var(--background)" : node.color,
-            }}
-          />
+            className={`flex size-[22px] items-center justify-center overflow-hidden rounded-full border-2 text-[8px] font-semibold ${selected ? "ring-4 ring-primary/20" : ""}`}
+            style={{ borderColor: node.color, backgroundColor: node.color, color: "#101018" }}
+          >
+            {author.avatarUrl && failedAvatar !== author.avatarUrl ? (
+              <img
+                src={author.avatarUrl}
+                alt=""
+                className="size-full object-cover"
+                loading="lazy"
+                referrerPolicy="no-referrer"
+                onError={() => setFailedAvatar(author.avatarUrl)}
+              />
+            ) : (
+              author.initials
+            )}
+          </span>
         </TooltipTrigger>
         <TooltipPopup>
+          {author.name}
+          {node.author?.email ? ` <${node.author.email}>` : ""}
+          <br />
           {node.commitId?.slice(0, 8)} · {node.subject}
         </TooltipPopup>
       </Tooltip>

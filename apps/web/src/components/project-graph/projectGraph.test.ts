@@ -8,6 +8,8 @@ import {
 } from "@t3tools/contracts";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import {
+  BRANCH_LABEL_WIDTH,
+  graphAuthorIdentity,
   canCloseGraphWorktree,
   graphEdgePath,
   layoutProjectGraph,
@@ -78,16 +80,20 @@ describe("project graph", () => {
     expect(feature.threads.map((entry) => entry.id)).toEqual(["thread", "settled"]);
     expect(alias.threads.map((entry) => entry.id)).toEqual(["alias-thread"]);
     expect(commit.threads).toHaveLength(0);
-    expect(feature.y).toBe(alias.y);
-    expect(feature.height).toBe(ROW_HEIGHT);
-    expect(commit.y).toBeGreaterThanOrEqual(alias.y + alias.height);
+    expect(feature.y).toBeGreaterThanOrEqual(alias.y + alias.height);
+    expect(commit.y).toBeGreaterThanOrEqual(alias.y);
+    expect(commit.y).toBeLessThan(feature.y + feature.height);
     expect(layout.lanes.map((lane) => lane.name)).toEqual(["main", "alias", "feat/new"]);
     expect(commit.stations).toHaveLength(1);
     expect(commit.x).toBe(alias.x);
     expect(
       layout.edges.filter(({ from, to }) => from.id === "feature" && to.id === "root"),
     ).toHaveLength(1);
-    expect(layout.edges.every(({ from, to }) => from.y < to.y)).toBe(true);
+    expect(
+      layout.edges
+        .filter(({ from }) => from.kind === "commit")
+        .every(({ from, to }) => from.y < to.y),
+    ).toBe(true);
   });
   it("keeps three shared-tip worktrees and their threads on their respective branches", () => {
     const branches = ["cube-collection", "cube-draw", "mvp"];
@@ -118,8 +124,12 @@ describe("project graph", () => {
       expect(card.worktrees.map((worktree) => worktree.path)).toEqual([worktrees[index]!.path]);
       expect(card.threads.map((entry) => entry.id)).toEqual([`thread-${index}`]);
     }
-    expect(new Set(cards.map((card) => card.y)).size).toBe(1);
-    expect(cards.every((card) => card.height === ROW_HEIGHT && card.kind === "ref")).toBe(true);
+    for (let index = 1; index < cards.length; index++) {
+      expect(cards[index]!.y).toBeGreaterThanOrEqual(
+        cards[index - 1]!.y + cards[index - 1]!.height,
+      );
+    }
+    expect(cards.every((card) => card.kind === "ref")).toBe(true);
   });
   it("attaches worktree threads by checkout even when branch metadata is stale", () => {
     const layout = layoutProjectGraph(graph, [thread({ branch: "main", worktreePath: tree.path })]);
@@ -226,7 +236,11 @@ describe("project graph", () => {
     expect(
       layout.edges.find(({ from, to }) => from.id === "merge" && to.id === "main-tip")?.color,
     ).toBe(merge!.color);
-    expect(layout.edges.every(({ from, to }) => from.y < to.y)).toBe(true);
+    expect(
+      layout.edges
+        .filter(({ from }) => from.kind === "commit")
+        .every(({ from, to }) => from.y < to.y),
+    ).toBe(true);
     // The merge's second-parent line leaves before the next main-line commit.
     const path = graphEdgePath(merge!, feature!);
     expect(path).toContain(`V ${merge!.y + ROW_HEIGHT - 8}`);
@@ -371,41 +385,29 @@ describe("project graph", () => {
     expect(appended.lanes.slice(0, 4)).toEqual(layout.lanes);
     expect(appended.lanes[4]?.name).toBe("000-latest");
   });
-  it("reserves timeline rows for commits and keeps branch controls together above them", () => {
+  it("stacks labels at their tip commit without overlapping the following commit's labels", () => {
     const layout = layoutProjectGraph(graph, [thread(), thread({ worktreePath: "/gone" })]);
     expect(layout.commitNodes.map((node) => node.id)).toEqual(["feature", "root"]);
-    expect(layout.commitNodes[1]!.y - layout.commitNodes[0]!.y).toBe(ROW_HEIGHT);
-    const headers = layout.nodes.filter((node) => node.kind === "ref");
-    expect(new Set(headers.map((node) => node.y)).size).toBe(1);
-    expect(headers.every((node) => node.y < layout.commitNodes[0]!.y)).toBe(true);
+    const refs = layout.nodes.filter((node) => node.kind === "ref").toSorted((a, b) => a.y - b.y);
+    for (let index = 1; index < refs.length; index++) {
+      expect(refs[index]!.y).toBeGreaterThanOrEqual(refs[index - 1]!.y + refs[index - 1]!.height);
+    }
     expect(layout.unlinkedNodes.flatMap((node) => node.threads)).toHaveLength(1);
-    const extraBranch = layoutProjectGraph(
-      {
-        ...graph,
-        branches: [
-          ...graph.branches,
-          {
-            name: "another",
-            head: "feature",
-            current: false,
-            merged: false,
-          },
-        ],
-      },
-      [thread()],
-    );
-    expect(extraBranch.commitNodes.map((node) => node.y)).toEqual(
-      layout.commitNodes.map((node) => node.y),
-    );
-  });
-  it("brings commit messages next to history after branch pointers have converged", () => {
-    const layout = layoutProjectGraph(graph, []);
-    const tip = layout.commitNodes.find((node) => node.id === "feature")!;
     const root = layout.commitNodes.find((node) => node.id === "root")!;
-    const rightmostRef = layout.nodes.find((node) => node.id === "branch:feat/new")!;
-    expect(tip.labelX).toBe(tip.x + 24);
-    expect(tip.labelX).toBeLessThan(rightmostRef.x);
-    expect(root.labelX).toBe(root.x + 24);
+    expect(refs.find((node) => node.id === "branch:main")?.y).toBe(root.y);
+    expect(
+      layout.edges
+        .filter(({ from }) => from.kind === "ref")
+        .every(({ from }) => from.x > BRANCH_LABEL_WIDTH),
+    ).toBe(true);
+  });
+  it("aligns messages beside narrow tracks while keeping labels to their left", () => {
+    const layout = layoutProjectGraph(graph, []);
+    expect(new Set(layout.commitNodes.map((node) => node.labelX)).size).toBe(1);
+    expect(layout.lanes[1]!.x - layout.lanes[0]!.x).toBeLessThan(36);
+    expect(layout.lanes.every((lane) => lane.x > BRANCH_LABEL_WIDTH)).toBe(true);
+    const rightmost = layout.commitNodes.toSorted((a, b) => b.x - a.x)[0]!;
+    expect(layout.commitNodes[0]!.labelX - rightmost.x).toBeLessThan(36);
   });
   it("keeps commit messages clear of other tracks that continue through the row", () => {
     const commits = [
@@ -427,8 +429,8 @@ describe("project graph", () => {
       graph,
       Array.from({ length: 12 }, (_, index) => thread({ id: ThreadId.make(`thread-${index}`) })),
     );
-    expect(one.commitNodes[0]!.y - empty.commitNodes[0]!.y).toBe(56);
-    expect(many.commitNodes[0]!.y - empty.commitNodes[0]!.y).toBe(224);
+    expect(one.commitNodes[0]!.y - empty.commitNodes[0]!.y).toBe(12);
+    expect(many.commitNodes[0]!.y - empty.commitNodes[0]!.y).toBe(36);
     expect(many.nodes.find((node) => node.id === "branch:feat/new")?.threads).toHaveLength(12);
   });
   it("protects main, locked and missing worktrees", () => {
@@ -445,4 +447,26 @@ it("protects worktrees with live background tasks and normalizes checkout paths"
   expect(canCloseGraphWorktree(windowsTree, [active])).toBe(false);
   const layout = layoutProjectGraph({ ...graph, worktrees: [windowsTree] }, [active]);
   expect(layout.nodes.find((node) => node.id === "branch:feat/new")?.threads).toHaveLength(1);
+});
+
+it("uses author initials locally and portraits only for recognizable public GitHub identities", () => {
+  expect(graphAuthorIdentity({ name: "Ada Lovelace", email: "private@example.com" })).toEqual({
+    name: "Ada Lovelace",
+    initials: "AL",
+    avatarUrl: null,
+  });
+  expect(
+    graphAuthorIdentity({ name: "Ada", email: "123+octocat@users.noreply.github.com" }).avatarUrl,
+  ).toBe("https://github.com/octocat.png?size=40");
+  expect(
+    graphAuthorIdentity({ name: "Ada", email: "octocat@users.noreply.github.com" }).avatarUrl,
+  ).toBe("https://github.com/octocat.png?size=40");
+  expect(graphAuthorIdentity(undefined).initials).toBe("?");
+  expect(graphAuthorIdentity({ name: "李 明", email: "" }).initials).toBe("李明");
+  const author = { name: "Ada Lovelace", email: "ada@example.com" };
+  const layout = layoutProjectGraph(
+    { ...graph, commits: graph.commits.map((commit) => ({ ...commit, author })) },
+    [],
+  );
+  expect(layout.commitNodes.every((node) => node.author === author)).toBe(true);
 });
