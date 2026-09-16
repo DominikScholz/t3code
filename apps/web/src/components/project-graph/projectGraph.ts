@@ -14,6 +14,7 @@ export type GraphNode = {
   x: number;
   y: number;
   height: number;
+  labelX: number;
   color: string;
   kind: "commit" | "ref" | "orphan";
   stations: GraphStation[];
@@ -48,6 +49,7 @@ export function layoutProjectGraph(
         x: 0,
         y: 0,
         height: ROW_HEIGHT,
+        labelX: 0,
         color: LINE_COLORS[0]!,
         kind: commitId === id ? "commit" : commitId ? "ref" : "orphan",
         stations: [],
@@ -190,12 +192,20 @@ export function layoutProjectGraph(
     ...[...nodes.values()].filter((node) => node.kind === "commit"),
     ...orphans,
   ];
-  let y = 132;
+  const unsettledRows = Math.min(
+    4,
+    refs.reduce(
+      (max, ref) => Math.max(max, ref.threads.filter((thread) => thread.settledAt === null).length),
+      0,
+    ),
+  );
+  const commitStart = 132 + unsettledRows * 56;
+  let y = commitStart;
   for (const node of ordered) {
     const station = node.stations[0];
     node.x = station?.x ?? 72;
     node.color = station?.color ?? LINE_COLORS[0]!;
-    node.y = node.kind === "commit" ? y : 96;
+    node.y = node.kind === "commit" ? y : commitStart - ROW_HEIGHT;
     node.threads.sort(
       (a, b) =>
         Number(a.settledAt !== null) - Number(b.settledAt !== null) ||
@@ -221,14 +231,42 @@ export function layoutProjectGraph(
       });
     }),
   );
+  const commitNodes = ordered.filter((node) => node.kind === "commit");
+  // Reserve space only for lines that actually cross a commit's text row.
+  // Bends enter/leave between rows, so ending branch pointers need no empty column.
+  const trackEvents = edges
+    .flatMap(({ from, to }) =>
+      to.y - from.y > ROW_HEIGHT
+        ? [
+            { y: from.y + ROW_HEIGHT, x: Math.max(from.x, to.x), delta: 1 },
+            { y: to.y, x: Math.max(from.x, to.x), delta: -1 },
+          ]
+        : [],
+    )
+    .sort((a, b) => a.y - b.y);
+  const activeTracks = new Map<number, number>();
+  let eventIndex = 0;
+  for (const node of commitNodes) {
+    while (eventIndex < trackEvents.length && trackEvents[eventIndex]!.y <= node.y) {
+      const event = trackEvents[eventIndex++]!;
+      const count = (activeTracks.get(event.x) ?? 0) + event.delta;
+      if (count === 0) activeTracks.delete(event.x);
+      else activeTracks.set(event.x, count);
+    }
+    let rightmost = node.x;
+    for (const x of activeTracks.keys()) rightmost = Math.max(rightmost, x);
+    node.labelX = rightmost + 24;
+  }
   return {
     nodes: ordered,
-    commitNodes: ordered.filter((node) => node.kind === "commit"),
+    commitNodes,
     unlinkedNodes: orphans,
     edges,
     lanes,
-    labelX: 72 + lanes.length * LANE_WIDTH,
-    width: 72 + lanes.length * LANE_WIDTH + NODE_WIDTH + 48,
+    width: commitNodes.reduce(
+      (width, node) => Math.max(width, node.labelX + NODE_WIDTH + 24),
+      72 + lanes.length * LANE_WIDTH,
+    ),
     height: y + 48,
   };
 }

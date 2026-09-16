@@ -392,11 +392,44 @@ describe("project graph", () => {
           },
         ],
       },
-      [],
+      [thread()],
     );
     expect(extraBranch.commitNodes.map((node) => node.y)).toEqual(
       layout.commitNodes.map((node) => node.y),
     );
+  });
+  it("brings commit messages next to history after branch pointers have converged", () => {
+    const layout = layoutProjectGraph(graph, []);
+    const tip = layout.commitNodes.find((node) => node.id === "feature")!;
+    const root = layout.commitNodes.find((node) => node.id === "root")!;
+    const rightmostRef = layout.nodes.find((node) => node.id === "branch:feat/new")!;
+    expect(tip.labelX).toBe(tip.x + 24);
+    expect(tip.labelX).toBeLessThan(rightmostRef.x);
+    expect(root.labelX).toBe(root.x + 24);
+  });
+  it("keeps commit messages clear of other tracks that continue through the row", () => {
+    const commits = [
+      { id: "merge", parents: ["left", "right"], subject: "Merge" },
+      { id: "left", parents: ["root"], subject: "Left" },
+      { id: "left-extra", parents: ["root"], subject: "Another tip" },
+      { id: "right", parents: ["root"], subject: "Right" },
+      { id: "root", parents: [], subject: "Base" },
+    ];
+    const layout = layoutProjectGraph({ ...graph, branches: [], worktrees: [], commits }, []);
+    const left = layout.commitNodes.find((node) => node.id === "left")!;
+    const right = layout.commitNodes.find((node) => node.id === "right")!;
+    expect(left.labelX).toBeGreaterThan(right.x);
+  });
+  it("makes room for thread titles in branch headers with a bounded scroll area", () => {
+    const empty = layoutProjectGraph(graph, []);
+    const one = layoutProjectGraph(graph, [thread()]);
+    const many = layoutProjectGraph(
+      graph,
+      Array.from({ length: 12 }, (_, index) => thread({ id: ThreadId.make(`thread-${index}`) })),
+    );
+    expect(one.commitNodes[0]!.y - empty.commitNodes[0]!.y).toBe(56);
+    expect(many.commitNodes[0]!.y - empty.commitNodes[0]!.y).toBe(224);
+    expect(many.nodes.find((node) => node.id === "branch:feat/new")?.threads).toHaveLength(12);
   });
   it("protects main, locked and missing worktrees", () => {
     expect(canCloseGraphWorktree(tree, [])).toBe(true);

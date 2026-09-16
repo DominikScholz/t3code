@@ -444,6 +444,7 @@ function GraphCanvas({
     const element = canvas.current;
     if (!element) return;
     const wheel = (event: WheelEvent) => {
+      if ((event.target as HTMLElement).closest("[data-graph-thread-list]")) return;
       event.preventDefault();
       if (event.ctrlKey || event.metaKey) {
         const rect = element.getBoundingClientRect();
@@ -480,7 +481,7 @@ function GraphCanvas({
   };
   const visible = layout.commitNodes.filter(
     (node) =>
-      layout.labelX + NODE_WIDTH >= bounds.left &&
+      node.labelX + NODE_WIDTH >= bounds.left &&
       node.x <= bounds.right &&
       node.y + node.height >= bounds.top &&
       node.y <= bounds.bottom,
@@ -586,6 +587,7 @@ function GraphCanvas({
               dimmed={filtering && !matches.has(lane.id)}
               onSelect={setSelectedId}
               onWorktreeMenu={onWorktreeMenu}
+              onOpenThread={onOpenThread}
             />
           ))}
           <svg
@@ -617,7 +619,7 @@ function GraphCanvas({
             <GraphRow
               key={node.id}
               node={node}
-              labelX={layout.labelX}
+              labelX={node.labelX}
               selected={node.id === selectedId}
               dimmed={filtering && !matches.has(node.id)}
               onSelect={setSelectedId}
@@ -807,6 +809,7 @@ const GraphLaneHeader = memo(function GraphLaneHeader({
   dimmed,
   onSelect,
   onWorktreeMenu,
+  onOpenThread,
 }: {
   lane: ReturnType<typeof layoutProjectGraph>["lanes"][number];
   node: GraphNode | undefined;
@@ -815,9 +818,11 @@ const GraphLaneHeader = memo(function GraphLaneHeader({
   dimmed: boolean;
   onSelect: (id: string) => void;
   onWorktreeMenu: GraphCanvasProps["onWorktreeMenu"];
+  onOpenThread: GraphCanvasProps["onOpenThread"];
 }) {
   const branch = node?.branches[0];
-  const unsettled = node?.threads.filter((thread) => thread.settledAt === null).length ?? 0;
+  const unsettledThreads = node?.threads.filter((thread) => thread.settledAt === null) ?? [];
+  const unsettled = unsettledThreads.length;
   const worktreeMenu = (event: MouseEvent) => {
     const tree = node?.worktrees[0];
     if (tree && node?.worktrees.length === 1)
@@ -897,6 +902,26 @@ const GraphLaneHeader = memo(function GraphLaneHeader({
         >
           {unsettled} unsettled
         </button>
+      )}
+      {unsettledThreads.length > 0 && (
+        <div
+          data-graph-thread-list
+          className="w-full max-h-56 overflow-y-auto overscroll-contain px-1"
+        >
+          {unsettledThreads.map((thread) => (
+            <Tooltip key={thread.id}>
+              <TooltipTrigger
+                className="flex h-14 w-full items-center gap-1 rounded px-1 text-left text-[10px] leading-4 text-amber-500 hover:bg-accent"
+                aria-label={`Open unsettled thread: ${thread.title}`}
+                onClick={() => onOpenThread(thread)}
+              >
+                <MessageSquareIcon className="size-3 shrink-0 self-start mt-1" />
+                <span className="line-clamp-3">{thread.title}</span>
+              </TooltipTrigger>
+              <TooltipPopup>{thread.title}</TooltipPopup>
+            </Tooltip>
+          ))}
+        </div>
       )}
     </div>
   );
