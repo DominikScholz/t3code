@@ -18,7 +18,7 @@ import {
   XIcon,
   FolderGit2Icon,
 } from "lucide-react";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import { readLocalApi } from "../../localApi";
 import type { SidebarProjectGroupMember } from "../../sidebarProjectGrouping";
@@ -378,6 +378,12 @@ function GraphCanvas({
   const canvas = useRef<HTMLDivElement>(null);
   const drag = useRef<{ x: number; y: number; pointer: number } | null>(null);
   const selected = useMemo(() => {
+    if (selectedId === "unlinked" && layout.unlinkedNodes[0])
+      return {
+        ...layout.unlinkedNodes[0],
+        subject: "Threads without a local checkout",
+        threads: layout.unlinkedNodes.flatMap((node) => node.threads),
+      };
     const node = layout.nodes.find((entry) => entry.id === selectedId);
     if (!node || node.kind !== "commit") return node;
     const refs = layout.nodes.filter((entry) => entry.kind === "ref" && entry.commitId === node.id);
@@ -387,7 +393,7 @@ function GraphCanvas({
       worktrees: refs.flatMap((ref) => ref.worktrees),
       threads: refs.flatMap((ref) => ref.threads),
     };
-  }, [layout.nodes, selectedId]);
+  }, [layout.nodes, layout.unlinkedNodes, selectedId]);
   const query = search.trim().toLowerCase();
   const matches = useMemo(
     () =>
@@ -472,7 +478,7 @@ function GraphCanvas({
     right: (size.width - view.x) / view.zoom + 400,
     bottom: (size.height - view.y) / view.zoom + 300,
   };
-  const visible = layout.nodes.filter(
+  const visible = layout.commitNodes.filter(
     (node) =>
       layout.labelX + NODE_WIDTH >= bounds.left &&
       node.x <= bounds.right &&
@@ -501,6 +507,13 @@ function GraphCanvas({
           <span className="size-1.5 rounded-full bg-amber-500" />
           {unsettledCount} unsettled
         </Button>
+        {layout.unlinkedNodes.length > 0 && (
+          <Button size="sm" variant="ghost" onClick={() => setSelectedId("unlinked")}>
+            <MessageSquareIcon className="size-3.5" />
+            {layout.unlinkedNodes.reduce((count, node) => count + node.threads.length, 0)} unlinked
+            threads
+          </Button>
+        )}
         <span className="ml-auto text-xs text-muted-foreground">
           {graph.commits.length} commits · {graph.branches.length} branches ·{" "}
           {graph.worktrees.length} worktrees
@@ -564,26 +577,16 @@ function GraphCanvas({
           style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})` }}
         >
           {layout.lanes.map((lane) => (
-            <Tooltip key={lane.id}>
-              <TooltipTrigger
-                className="absolute w-28 truncate text-center font-mono text-[11px]"
-                style={{ left: lane.x - 56, top: 12, color: lane.color }}
-                onClick={() => {
-                  const node =
-                    layout.nodes.find((entry) => entry.id === lane.id) ??
-                    layout.nodes.find(
-                      (entry) =>
-                        entry.kind === "commit" &&
-                        entry.stations.some((station) => station.lane === lane.lane),
-                    );
-                  if (node) focus(node);
-                }}
-                aria-label={`Branch lane ${lane.name}`}
-              >
-                {lane.name}
-              </TooltipTrigger>
-              <TooltipPopup>{lane.name}</TooltipPopup>
-            </Tooltip>
+            <GraphLaneHeader
+              key={lane.id}
+              lane={lane}
+              node={layout.nodes.find((node) => node.id === lane.id)}
+              defaultBranch={graph.defaultBranch}
+              selected={selectedId === lane.id}
+              dimmed={filtering && !matches.has(lane.id)}
+              onSelect={setSelectedId}
+              onWorktreeMenu={onWorktreeMenu}
+            />
           ))}
           <svg
             className="pointer-events-none absolute left-0 top-0 overflow-visible"
@@ -617,9 +620,7 @@ function GraphCanvas({
               labelX={layout.labelX}
               selected={node.id === selectedId}
               dimmed={filtering && !matches.has(node.id)}
-              defaultBranch={graph.defaultBranch}
               onSelect={setSelectedId}
-              onWorktreeMenu={onWorktreeMenu}
             />
           ))}
         </div>
@@ -798,138 +799,162 @@ function GraphCanvas({
   );
 }
 
+const GraphLaneHeader = memo(function GraphLaneHeader({
+  lane,
+  node,
+  defaultBranch,
+  selected,
+  dimmed,
+  onSelect,
+  onWorktreeMenu,
+}: {
+  lane: ReturnType<typeof layoutProjectGraph>["lanes"][number];
+  node: GraphNode | undefined;
+  defaultBranch: string | null;
+  selected: boolean;
+  dimmed: boolean;
+  onSelect: (id: string) => void;
+  onWorktreeMenu: GraphCanvasProps["onWorktreeMenu"];
+}) {
+  const branch = node?.branches[0];
+  const unsettled = node?.threads.filter((thread) => thread.settledAt === null).length ?? 0;
+  const worktreeMenu = (event: MouseEvent) => {
+    const tree = node?.worktrees[0];
+    if (tree && node?.worktrees.length === 1)
+      onWorktreeMenu(tree, { x: event.clientX, y: event.clientY });
+    else if (node) onSelect(node.id);
+  };
+  return (
+    <div
+      className={`absolute flex w-28 flex-col items-center gap-1 rounded py-1 ${selected ? "bg-primary/10" : ""}`}
+      style={{ left: lane.x - 56, top: 8, opacity: dimmed ? 0.3 : 1 }}
+    >
+      <Tooltip>
+        <TooltipTrigger
+          className="w-full truncate text-center font-mono text-[11px]"
+          style={{ color: lane.color }}
+          disabled={!node}
+          onClick={() => node && onSelect(node.id)}
+          aria-label={`Branch lane ${lane.name}`}
+        >
+          {lane.name}
+        </TooltipTrigger>
+        <TooltipPopup>{lane.name}</TooltipPopup>
+      </Tooltip>
+      {branch && (
+        <span className="text-[9px] text-muted-foreground">
+          {branch.name === defaultBranch
+            ? "base"
+            : branch.merged === true
+              ? "merged"
+              : branch.merged === false
+                ? "unmerged"
+                : "unknown"}
+          {branch.current ? " · HEAD" : ""}
+        </span>
+      )}
+      {node && (
+        <div className="flex items-center justify-center gap-1">
+          {node.worktrees.length > 0 && (
+            <Tooltip>
+              <TooltipTrigger
+                className="flex items-center gap-1 rounded px-1.5 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
+                aria-label={`${lane.name}: ${node.worktrees.length} worktree${node.worktrees.length === 1 ? "" : "s"}`}
+                onClick={worktreeMenu}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  worktreeMenu(event);
+                }}
+              >
+                <FolderGit2Icon className="size-3" />
+                {node.worktrees.length}
+              </TooltipTrigger>
+              <TooltipPopup>
+                {node.worktrees.map((tree) => (
+                  <div key={tree.path} className="max-w-96 break-all font-mono text-[11px]">
+                    {tree.path}
+                  </div>
+                ))}
+              </TooltipPopup>
+            </Tooltip>
+          )}
+          {node.threads.length > 0 && (
+            <button
+              className={`flex items-center gap-1 rounded px-1.5 py-1 text-[11px] hover:bg-accent ${unsettled ? "text-amber-500" : "text-muted-foreground"}`}
+              aria-label={`${lane.name}: ${node.threads.length} threads, ${unsettled} unsettled`}
+              onClick={() => onSelect(node.id)}
+            >
+              <MessageSquareIcon className="size-3" />
+              {node.threads.length}
+            </button>
+          )}
+        </div>
+      )}
+      {unsettled > 0 && (
+        <button
+          className="text-[9px] text-amber-500 hover:underline"
+          onClick={() => node && onSelect(node.id)}
+        >
+          {unsettled} unsettled
+        </button>
+      )}
+    </div>
+  );
+});
+
 const GraphRow = memo(function GraphRow({
   node,
   labelX,
   selected,
   dimmed,
-  defaultBranch,
   onSelect,
-  onWorktreeMenu,
 }: {
   node: GraphNode;
   labelX: number;
   selected: boolean;
   dimmed: boolean;
-  defaultBranch: string | null;
   onSelect: (id: string) => void;
-  onWorktreeMenu: GraphCanvasProps["onWorktreeMenu"];
 }) {
-  const unsettled = node.threads.filter((thread) => thread.settledAt === null).length;
-  const branch = node.branches[0];
-  const name = branch?.name ?? (node.kind === "ref" ? "Detached HEAD" : node.subject);
   return (
     <div style={{ opacity: dimmed ? 0.25 : 1 }}>
-      {(node.stations.length ? node.stations : [{ lane: -1, x: node.x, color: node.color }]).map(
-        (station) => (
-          <Tooltip key={station.lane}>
-            <TooltipTrigger
-              className="absolute flex size-7 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              style={{
-                left: station.x - 14,
-                top: node.y + ROW_HEIGHT / 2 - 14,
-                color: station.color,
-              }}
-              aria-label={`Inspect ${name}`}
-              onClick={() => onSelect(node.id)}
-            >
-              {node.kind === "commit" ? (
-                <span
-                  className={`size-2.5 rounded-full border-2 ${selected ? "ring-4 ring-primary/20" : ""}`}
-                  style={{
-                    borderColor: station.color,
-                    backgroundColor: node.parents.length > 1 ? "var(--background)" : station.color,
-                  }}
-                />
-              ) : node.kind === "ref" ? (
-                <GitBranchIcon className="size-3.5 bg-background" />
-              ) : (
-                <MessageSquareIcon className="size-3.5 bg-background text-amber-500" />
-              )}
-            </TooltipTrigger>
-            <TooltipPopup>
-              {node.kind === "commit" ? `${node.commitId?.slice(0, 8)} · ${node.subject}` : name}
-            </TooltipPopup>
-          </Tooltip>
-        ),
-      )}
+      <Tooltip>
+        <TooltipTrigger
+          className="absolute flex size-7 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          style={{ left: node.x - 14, top: node.y + ROW_HEIGHT / 2 - 14 }}
+          aria-label={`Inspect ${node.subject}`}
+          onClick={() => onSelect(node.id)}
+        >
+          <span
+            className={`size-2.5 rounded-full border-2 ${selected ? "ring-4 ring-primary/20" : ""}`}
+            style={{
+              borderColor: node.color,
+              backgroundColor: node.parents.length > 1 ? "var(--background)" : node.color,
+            }}
+          />
+        </TooltipTrigger>
+        <TooltipPopup>
+          {node.commitId?.slice(0, 8)} · {node.subject}
+        </TooltipPopup>
+      </Tooltip>
       <div
         className={`absolute flex items-center gap-2 rounded px-2 ${selected ? "bg-primary/10" : "hover:bg-muted/40"}`}
         style={{ left: labelX, top: node.y, height: ROW_HEIGHT, width: NODE_WIDTH }}
       >
         <Tooltip>
           <TooltipTrigger
-            className={`min-w-0 truncate text-left text-xs ${branch ? "max-w-64 shrink-0 rounded border px-2 py-0.5 font-mono" : "flex-1 text-foreground/80"}`}
-            style={branch ? { color: node.color, borderColor: node.color + "55" } : undefined}
-            aria-label={name}
+            className="min-w-0 flex-1 truncate text-left text-xs text-foreground/80"
             onClick={() => onSelect(node.id)}
           >
-            {name}
+            {node.subject}
           </TooltipTrigger>
-          <TooltipPopup>{name}</TooltipPopup>
+          <TooltipPopup>{node.subject}</TooltipPopup>
         </Tooltip>
-        {branch && (
-          <span className="shrink-0 text-[10px] text-muted-foreground">
-            {branch.name === defaultBranch
-              ? "base"
-              : branch.merged === true
-                ? "merged"
-                : branch.merged === false
-                  ? "unmerged"
-                  : "unknown"}
-            {branch.current ? " · HEAD" : ""}
-          </span>
-        )}
-        {node.worktrees.length > 0 && (
-          <Tooltip>
-            <TooltipTrigger
-              className="flex shrink-0 items-center gap-1 rounded px-1.5 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
-              aria-label={`${name}: ${node.worktrees.length} worktree${node.worktrees.length === 1 ? "" : "s"}`}
-              onClick={(event) => {
-                const tree = node.worktrees[0];
-                if (tree && node.worktrees.length === 1)
-                  onWorktreeMenu(tree, { x: event.clientX, y: event.clientY });
-                else onSelect(node.id);
-              }}
-              onContextMenu={(event) => {
-                event.preventDefault();
-                const tree = node.worktrees[0];
-                if (tree && node.worktrees.length === 1)
-                  onWorktreeMenu(tree, { x: event.clientX, y: event.clientY });
-                else onSelect(node.id);
-              }}
-            >
-              <FolderGit2Icon className="size-3" />
-              {node.worktrees.length}
-            </TooltipTrigger>
-            <TooltipPopup>
-              {node.worktrees.map((tree) => (
-                <div key={tree.path} className="max-w-96 break-all font-mono text-[11px]">
-                  {tree.path}
-                </div>
-              ))}
-            </TooltipPopup>
-          </Tooltip>
-        )}
-        {node.threads.length > 0 && (
-          <button
-            className={`flex shrink-0 items-center gap-1 rounded px-1.5 py-1 text-[11px] hover:bg-accent ${unsettled ? "text-amber-500" : "text-muted-foreground"}`}
-            aria-label={`${name}: ${node.threads.length} threads, ${unsettled} unsettled`}
-            onClick={() => onSelect(node.id)}
-          >
-            <MessageSquareIcon className="size-3" />
-            {node.threads.length}
-            {unsettled > 0 && <span>· {unsettled} unsettled</span>}
-          </button>
-        )}
-        {node.commitId && (
-          <button
-            onClick={() => onSelect(node.id)}
-            className="ml-auto shrink-0 font-mono text-[10px] text-muted-foreground/70"
-          >
-            {node.commitId.slice(0, 8)}
-          </button>
-        )}
+        <button
+          onClick={() => onSelect(node.id)}
+          className="ml-auto shrink-0 font-mono text-[10px] text-muted-foreground/70"
+        >
+          {node.commitId?.slice(0, 8)}
+        </button>
       </div>
     </div>
   );

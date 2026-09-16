@@ -73,7 +73,9 @@ including branch renames. Otherwise the default branch, then alphabetical order,
 which branch displays common history. Every commit appears exactly once; solid lines show its
 parent relationships, including real forks and merges. Separate branch names do not imply
 separate commit histories or reveal when a branch name was created. Worktree and thread counts
-remain attached to the individual branch labels.
+appear in the lane headers above the graph, with unsettled counts highlighted. Timeline rows
+contain only commits. Merge connections use the color of the incoming branch. Threads without
+a matching local branch or worktree remain accessible through **Unlinked threads**.
 Select a dot or label for details and threads. Unsettled thread counts are highlighted.
 For projects with multiple checkouts or environments, choose which checkout to explore.
 

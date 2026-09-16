@@ -190,18 +190,18 @@ export function layoutProjectGraph(
     ...[...nodes.values()].filter((node) => node.kind === "commit"),
     ...orphans,
   ];
-  let y = 60;
+  let y = 132;
   for (const node of ordered) {
     const station = node.stations[0];
     node.x = station?.x ?? 72;
     node.color = station?.color ?? LINE_COLORS[0]!;
-    node.y = y;
+    node.y = node.kind === "commit" ? y : 96;
     node.threads.sort(
       (a, b) =>
         Number(a.settledAt !== null) - Number(b.settledAt !== null) ||
         b.updatedAt.localeCompare(a.updatedAt),
     );
-    y += ROW_HEIGHT;
+    if (node.kind === "commit") y += ROW_HEIGHT;
   }
   const edges = ordered.flatMap((node) =>
     node.parents.flatMap((parent) => {
@@ -213,13 +213,18 @@ export function layoutProjectGraph(
         return {
           from: { ...node, x: station.x, color: station.color },
           to: { ...target, x: targetStation?.x ?? target.x },
-          color: station.color,
+          color:
+            node.kind === "commit" && node.parents.indexOf(parent) > 0
+              ? target.color
+              : station.color,
         };
       });
     }),
   );
   return {
     nodes: ordered,
+    commitNodes: ordered.filter((node) => node.kind === "commit"),
+    unlinkedNodes: orphans,
     edges,
     lanes,
     labelX: 72 + lanes.length * LANE_WIDTH,
