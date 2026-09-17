@@ -9,6 +9,7 @@ export type GraphNode = {
   commitId: string | null;
   subject: string;
   author?: VcsProjectGraph["commits"][number]["author"];
+  committedAtEpochSeconds?: number;
   historyLabel?: string;
   historyDetail?: string;
   parents: readonly string[];
@@ -88,6 +89,8 @@ export function layoutProjectGraph(
     const commit = commits.get(id);
     const node = ensure(id, commit?.subject, commit?.parents, id);
     if (commit?.author) node.author = commit.author;
+    if (commit?.committedAtEpochSeconds !== undefined)
+      node.committedAtEpochSeconds = commit.committedAtEpochSeconds;
     return node;
   };
   for (const commit of graph.commits) ensureCommit(commit.id);

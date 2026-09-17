@@ -26,6 +26,8 @@ import {
   type ReactNode,
 } from "react";
 import { buildThreadRouteParams } from "../../threadRoutes";
+import { useNowMinute } from "../../hooks/useNowMinute";
+import { formatRelativeTime } from "../../timestampFormat";
 import { readLocalApi } from "../../localApi";
 import type { SidebarProjectGroupMember } from "../../sidebarProjectGrouping";
 import { readThreadShell, useProjects, useThreadShellsForProjectRefs } from "../../state/entities";
@@ -913,7 +915,7 @@ const GraphBranchLabel = memo(function GraphBranchLabel({
         {node.worktrees.map((tree) => (
           <Tooltip key={tree.path}>
             <TooltipTrigger
-              className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground/70 hover:bg-foreground/5 hover:text-foreground"
+              className="flex size-5 shrink-0 items-center justify-center rounded text-foreground hover:bg-foreground/5"
               aria-label={`Worktree ${tree.path}: ${tree.branch ?? "Detached HEAD"}`}
               disabled={closing === tree.path}
               onClick={(event) => onWorktreeMenu(tree, { x: event.clientX, y: event.clientY })}
@@ -967,7 +969,8 @@ const GraphBranchLabel = memo(function GraphBranchLabel({
                 onClick={() => onOpenThread(thread)}
               >
                 <MessageSquareIcon className="size-3 shrink-0" />
-                <span className="truncate">{thread.title}</span>
+                <span className="min-w-0 flex-1 truncate">{thread.title}</span>
+                <GraphTime timestamp={thread.latestUserMessageAt ?? thread.updatedAt} />
               </TooltipTrigger>
               <TooltipPopup>
                 {thread.settledAt === null ? "Unsettled" : "Settled"} · {thread.title}
@@ -980,6 +983,30 @@ const GraphBranchLabel = memo(function GraphBranchLabel({
     </div>
   );
 });
+
+function GraphTime({ timestamp }: { timestamp: string | number | undefined }) {
+  useNowMinute();
+  const date = new Date(timestamp ?? Number.NaN);
+  if (!Number.isFinite(date.getTime())) return null;
+  const iso = date.toISOString();
+  const relative = formatRelativeTime(iso);
+  if (!relative) return null;
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <time
+            dateTime={iso}
+            className="shrink-0 text-[10px] tabular-nums text-muted-foreground/70"
+          />
+        }
+      >
+        {relative.value === "just now" ? "now" : relative.value}
+      </TooltipTrigger>
+      <TooltipPopup>{date.toLocaleString()}</TooltipPopup>
+    </Tooltip>
+  );
+}
 
 const GraphRow = memo(function GraphRow({
   node,
@@ -1077,6 +1104,13 @@ const GraphRow = memo(function GraphRow({
           </TooltipTrigger>
           <TooltipPopup>{node.subject}</TooltipPopup>
         </Tooltip>
+        <GraphTime
+          timestamp={
+            node.committedAtEpochSeconds === undefined
+              ? undefined
+              : node.committedAtEpochSeconds * 1_000
+          }
+        />
         <button
           onClick={() => onSelect(node.id)}
           className="ml-auto shrink-0 font-mono text-[10px] text-muted-foreground/70"
