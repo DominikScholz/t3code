@@ -28,36 +28,19 @@ export const ROW_HEIGHT = 32;
 export const BRANCH_LABEL_WIDTH = 248;
 const GRAPH_LEFT = BRANCH_LABEL_WIDTH + 40;
 const LANE_WIDTH = 28;
-// Reference palette arranged in rainbow order; interpolate instead of repeating
-// colors when a project has more branches than swatches.
+// Ten saturated rainbow colors, independent of branch count.
 const LINE_COLORS = [
-  "#c83b21",
-  "#ef7f4e",
-  "#f0d061",
-  "#6c8f52",
-  "#54907e",
-  "#59aac6",
-  "#3a84f8",
-  "#9238ca",
-  "#c84dc0",
-  "#d44581",
+  "#f04438",
+  "#ff7a24",
+  "#f5d02b",
+  "#83c83f",
+  "#19b88b",
+  "#12b5d0",
+  "#187bff",
+  "#9428e8",
+  "#d72ddd",
+  "#ed287a",
 ];
-
-function laneColor(index: number, count: number) {
-  const position = (index / Math.max(1, count - 1)) * (LINE_COLORS.length - 1);
-  const lower = Math.floor(position);
-  const from = LINE_COLORS[lower]!;
-  const to = LINE_COLORS[Math.min(lower + 1, LINE_COLORS.length - 1)]!;
-  return `#${[1, 3, 5]
-    .map((offset) => {
-      const a = Number.parseInt(from.slice(offset, offset + 2), 16);
-      const b = Number.parseInt(to.slice(offset, offset + 2), 16);
-      return Math.round(a + (b - a) * (position - lower))
-        .toString(16)
-        .padStart(2, "0");
-    })
-    .join("")}`;
-}
 
 /** Worktree identity wins over stale thread branch metadata after a checkout switch. */
 export function layoutProjectGraph(
@@ -313,7 +296,7 @@ export function layoutProjectGraph(
   for (const [index, lane] of lanes.entries()) {
     lane.lane = index;
     lane.x = GRAPH_LEFT + index * LANE_WIDTH;
-    lane.color = laneColor(index, lanes.length);
+    lane.color = LINE_COLORS[index % LINE_COLORS.length]!;
   }
   refs.sort((a, b) => a.stations[0]!.lane - b.stations[0]!.lane);
   const orphans = [...nodes.values()].filter((node) => node.id.startsWith("missing-"));

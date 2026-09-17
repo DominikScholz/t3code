@@ -378,9 +378,8 @@ describe("project graph", () => {
       },
       [],
     );
-    expect(appended.lanes.slice(0, 4).map(({ id, x }) => ({ id, x }))).toEqual(
-      layout.lanes.map(({ id, x }) => ({ id, x })),
-    );
+    // Adding a lane must not stretch the rainbow and recolor existing lanes.
+    expect(appended.lanes.slice(0, 4)).toEqual(layout.lanes);
     expect(appended.lanes[4]?.name).toBe("000-latest");
   });
   it("orders actual divergence before local ref creation and ignores later merges from main", () => {

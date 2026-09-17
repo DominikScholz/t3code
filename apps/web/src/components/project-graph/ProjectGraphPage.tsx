@@ -578,6 +578,26 @@ function GraphLog({
               }}
             />
           ))}
+          {visibleRows.map((row) => {
+            const node = row.commit ?? (row.thread ? undefined : row.ref);
+            if (!node) return null;
+            return (
+              <div
+                key={`track-band:${row.id}`}
+                aria-hidden="true"
+                className="pointer-events-none absolute border-r-2"
+                style={{
+                  left: node.x,
+                  top: row.y + 2,
+                  width: layout.labelX - node.x,
+                  height: ROW_HEIGHT - 4,
+                  backgroundColor: `color-mix(in srgb, ${node.color} 6%, transparent)`,
+                  borderColor: `color-mix(in srgb, ${node.color} 50%, transparent)`,
+                  opacity: row.ref ? 0.5 : 1,
+                }}
+              />
+            );
+          })}
           <svg
             className="pointer-events-none absolute left-0 top-0 overflow-visible"
             width={1}
