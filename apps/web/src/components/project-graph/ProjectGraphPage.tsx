@@ -639,16 +639,13 @@ function GraphLog({
           className="relative mt-3 min-w-full"
           style={{ width: layout.width, height: Math.max(layout.height, size.height) }}
         >
-          {visibleRows.map((row) => (
+          {selectedY !== undefined && (
             <div
-              key={`band:${row.id}`}
-              className={`absolute left-0 w-full ${selectedY === row.y ? "bg-accent/20" : ""}`}
-              style={{
-                top: row.y,
-                height: ROW_HEIGHT,
-              }}
+              aria-hidden="true"
+              className="pointer-events-none absolute left-0 w-full bg-accent/20"
+              style={{ top: selectedY, height: ROW_HEIGHT }}
             />
-          ))}
+          )}
           {visibleRows.map((row) => {
             const node = row.commit ?? (row.thread || row.settledThreads ? undefined : row.ref);
             if (!node) return null;

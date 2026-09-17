@@ -84,7 +84,7 @@ describe("project graph", () => {
     expect(commit.y).toBeGreaterThanOrEqual(alias.y);
     expect(commit.y).toBe(feature.y);
     expect(layout.lanes.map((lane) => lane.name)).toEqual(["main", "alias", "feat/new"]);
-    expect(commit.stations).toHaveLength(1);
+    expect(commit.station).toBeDefined();
     expect(commit.x).toBe(alias.x);
     expect(
       layout.edges.filter(({ from, to }) => from.id === "feature" && to.id === "root"),
@@ -169,7 +169,9 @@ describe("project graph", () => {
         "detached",
       ]),
     );
-    expect(layout.nodes.every((node) => Number.isFinite(node.x) && node.height > 0)).toBe(true);
+    expect(layout.nodes.every((node) => Number.isFinite(node.x) && Number.isFinite(node.y))).toBe(
+      true,
+    );
   });
   it("does not mix detached worktrees with branches or other detached checkouts at the same commit", () => {
     const detached = { ...tree, branch: null };
@@ -268,9 +270,9 @@ describe("project graph", () => {
     expect(first.lanes).toEqual(reordered.lanes);
     const tip = first.nodes.find((node) => node.id === "feature")!;
     const root = first.nodes.find((node) => node.id === "root")!;
-    expect(tip.stations).toHaveLength(1);
+    expect(tip.station).toBeDefined();
     expect(tip.x).toBe(first.lanes[1]?.x);
-    expect(root.stations).toHaveLength(1);
+    expect(root.station).toBeDefined();
     expect(root.x).toBe(first.lanes[0]?.x);
     expect(
       first.edges.filter(({ from, to }) => from.id === "feature" && to.id === "root"),
@@ -303,7 +305,7 @@ describe("project graph", () => {
     const layout = layoutProjectGraph(history, []);
     const commits = layout.nodes.filter((node) => node.kind === "commit");
     expect(commits).toHaveLength(4);
-    expect(commits.every((node) => node.stations.length === 1)).toBe(true);
+    expect(commits.every((node) => node.station !== undefined)).toBe(true);
     expect(commits.find((node) => node.id === "left-tip")?.x).not.toBe(
       commits.find((node) => node.id === "right-tip")?.x,
     );
@@ -328,7 +330,7 @@ describe("project graph", () => {
     expect(
       layout.nodes
         .filter((node) => node.kind === "commit")
-        .every((node) => node.stations.length === 1),
+        .every((node) => node.station !== undefined),
     ).toBe(true);
     expect(layout.lanes.map((lane) => lane.name)).not.toContain("Shared history");
   });
@@ -523,7 +525,7 @@ describe("project graph", () => {
     expect(lane("old").color).toBe(lane("new").color);
     expect(lane("main").color).toBe(normal.lanes[0]!.color);
     for (const node of compact.nodes) {
-      if (node.stations[0]) expect(node.color).toBe(node.stations[0].color);
+      if (node.station) expect(node.color).toBe(node.station.color);
     }
     expect(compact.edges.find(({ from, to }) => from.id === "tip" && to.id === "new")?.color).toBe(
       lane("new").color,
@@ -655,11 +657,10 @@ describe("project graph", () => {
   });
   it("aligns messages beside narrow tracks while keeping labels to their left", () => {
     const layout = layoutProjectGraph(graph, []);
-    expect(new Set(layout.commitNodes.map((node) => node.labelX)).size).toBe(1);
     expect(layout.lanes[1]!.x - layout.lanes[0]!.x).toBeLessThan(36);
     expect(layout.lanes.every((lane) => lane.x > BRANCH_LABEL_WIDTH)).toBe(true);
     const rightmost = layout.lanes.at(-1)!;
-    expect(layout.commitNodes[0]!.labelX - rightmost.x).toBeLessThan(36);
+    expect(layout.labelX - rightmost.x).toBeLessThan(36);
   });
   it("keeps commit messages clear of other tracks that continue through the row", () => {
     const commits = [
@@ -670,9 +671,8 @@ describe("project graph", () => {
       { id: "root", parents: [], subject: "Base" },
     ];
     const layout = layoutProjectGraph({ ...graph, branches: [], worktrees: [], commits }, []);
-    const left = layout.commitNodes.find((node) => node.id === "left")!;
     const right = layout.commitNodes.find((node) => node.id === "right")!;
-    expect(left.labelX).toBeGreaterThan(right.x);
+    expect(layout.labelX).toBeGreaterThan(right.x);
   });
   it("gives each shared-tip branch and unsettled thread its own uniform row", () => {
     const empty = layoutProjectGraph(graph, []);

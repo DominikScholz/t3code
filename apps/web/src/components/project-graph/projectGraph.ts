@@ -18,11 +18,9 @@ export type GraphNode = {
   threads: EnvironmentThreadShell[];
   x: number;
   y: number;
-  height: number;
-  labelX: number;
   color: string;
   kind: "commit" | "ref" | "orphan";
-  stations: GraphStation[];
+  station?: GraphStation;
 };
 export const NODE_WIDTH = 660;
 export const ROW_HEIGHT = 32;
@@ -74,11 +72,8 @@ export function layoutProjectGraph(
         threads: [],
         x: 0,
         y: 0,
-        height: ROW_HEIGHT,
-        labelX: 0,
         color: LINE_COLORS[0]!,
         kind: commitId === id ? "commit" : commitId ? "ref" : "orphan",
-        stations: [],
       };
       nodes.set(id, node);
     }
@@ -189,13 +184,13 @@ export function layoutProjectGraph(
       const node = nodes.get(id);
       // A commit is one Git object, even when many branches can reach it.
       // Joining an assigned node ends this track instead of duplicating its ancestry.
-      if (!node || node.kind !== "commit" || node.stations.length > 0) break;
-      node.stations.push(lane);
+      if (!node || node.kind !== "commit" || node.station) break;
+      node.station = lane;
       id = node.parents[0];
     }
   };
   for (const ref of refs) {
-    ref.stations.push(addLane(ref.id, ref.branches[0]?.name ?? "Detached checkout"));
+    ref.station = addLane(ref.id, ref.branches[0]?.name ?? "Detached checkout");
   }
   // Claim source-branch ancestry before its descendants. Reflog provenance resolves
   // equal tips without inventing a separate shared branch or duplicating commits.
@@ -223,17 +218,17 @@ export function layoutProjectGraph(
       }
       ancestor = nodes.get(ancestor)?.parents[0];
     }
-    if (ref.commitId) walk(ref.commitId, ref.stations[0]!);
+    if (ref.commitId) walk(ref.commitId, ref.station!);
   };
   const base = refs.find((ref) => ref.branches[0]?.name === graph.defaultBranch);
   if (base) {
     assignedRefs.add(base.id);
-    if (base.commitId) walk(base.commitId, base.stations[0]!);
+    if (base.commitId) walk(base.commitId, base.station!);
   }
   for (const ref of refs) assignHistory(ref);
   // Merged ancestry without a live ref still has exactly one track.
   for (const node of nodes.values()) {
-    if (node.kind === "commit" && node.stations.length === 0) {
+    if (node.kind === "commit" && !node.station) {
       walk(node.id, addLane(`history:${node.id}`, "Merged history"));
       node.historyLabel = "History without a local branch";
       node.historyDetail = "No local branch points to this history.";
@@ -250,10 +245,10 @@ export function layoutProjectGraph(
   >();
   for (const node of nodes.values()) {
     if (node.kind !== "commit") continue;
-    const lane = node.stations[0]!;
+    const lane = node.station!;
     const parent = nodes.get(node.parents[0] ?? "");
-    if (parent?.stations[0] !== lane)
-      forks.set(lane, { parent: parent?.stations[0], commit: parent?.id, first: node.id });
+    if (parent?.station !== lane)
+      forks.set(lane, { parent: parent?.station, commit: parent?.id, first: node.id });
     for (const id of node.parents.slice(1)) {
       const merged = nodes.get(id);
       if (merged?.historyLabel) {
@@ -263,10 +258,10 @@ export function layoutProjectGraph(
     }
   }
   for (const ref of refs) {
-    const lane = ref.stations[0]!;
+    const lane = ref.station!;
     const target = nodes.get(ref.commitId ?? "");
-    if (!forks.has(lane) && target?.stations[0] !== lane)
-      forks.set(lane, { parent: target?.stations[0], commit: target?.id });
+    if (!forks.has(lane) && target?.station !== lane)
+      forks.set(lane, { parent: target?.station, commit: target?.id });
   }
   const compareForks = (a: (typeof lanes)[number], b: (typeof lanes)[number]) => {
     const aFork = forks.get(a);
@@ -287,7 +282,7 @@ export function layoutProjectGraph(
   const pending = new Set(lanes);
   const sorted: typeof lanes = [];
   const placed = new Set<GraphStation>();
-  const baseLane = base?.stations[0];
+  const baseLane = base?.station;
   while (pending.size) {
     const candidates = [...pending].filter((lane) => {
       const parent = forks.get(lane)?.parent;
@@ -307,7 +302,7 @@ export function layoutProjectGraph(
     lane.x = GRAPH_LEFT + index * LANE_WIDTH;
     lane.color = LINE_COLORS[index % LINE_COLORS.length]!;
   }
-  refs.sort((a, b) => a.stations[0]!.lane - b.stations[0]!.lane);
+  refs.sort((a, b) => a.station!.lane - b.station!.lane);
   const orphans = [...nodes.values()].filter((node) => node.id.startsWith("missing-"));
   const ordered = [
     ...refs,
@@ -316,7 +311,7 @@ export function layoutProjectGraph(
   ];
   const refsByCommit = new Map<string, GraphNode[]>();
   for (const node of ordered) {
-    const station = node.stations[0];
+    const station = node.station;
     node.x = station?.x ?? GRAPH_LEFT;
     node.color = station?.color ?? LINE_COLORS[0]!;
     node.threads.sort(
@@ -437,14 +432,14 @@ export function layoutProjectGraph(
       });
     };
     for (const node of ordered) {
-      extend(node.stations[0], node.y);
+      extend(node.station, node.y);
       for (const [index, parentId] of node.parents.entries()) {
         const parent = nodes.get(parentId);
         if (!parent) continue;
         // First-parent tracks run down to the fork. Incoming merge tracks run
         // up to the merge row, so their connecting stems also reserve space.
-        if (node.kind === "commit" && index > 0) extend(parent.stations[0], node.y);
-        else extend(node.stations[0], parent.y);
+        if (node.kind === "commit" && index > 0) extend(parent.station, node.y);
+        else extend(node.station, parent.y);
       }
     }
     const occupied: { start: number; end: number; column: number }[] = [];
@@ -464,37 +459,28 @@ export function layoutProjectGraph(
       occupied.push({ ...span, column });
     }
     for (const node of ordered) {
-      node.x = node.stations[0]?.x ?? GRAPH_LEFT;
-      node.color = node.stations[0]?.color ?? LINE_COLORS[0]!;
+      node.x = node.station?.x ?? GRAPH_LEFT;
+      node.color = node.station?.color ?? LINE_COLORS[0]!;
     }
   }
 
   const edges = ordered.flatMap((node) =>
     node.parents.flatMap((parent) => {
       const target = nodes.get(parent);
-      if (!target || (node.kind === "commit" && node.y === target.y)) return [];
-      return node.stations.map((station) => {
-        const targetStation =
-          target.stations.find((entry) => entry.lane === station.lane) ?? target.stations[0];
-        return {
-          from: {
-            ...node,
-            x: station.x,
-            color: station.color,
-          },
-          to: { ...target, x: targetStation?.x ?? target.x },
+      if (!node.station || !target || (node.kind === "commit" && node.y === target.y)) return [];
+      return [
+        {
+          from: node,
+          to: target,
           color:
-            node.kind === "commit" && node.parents.indexOf(parent) > 0
-              ? target.color
-              : station.color,
-        };
-      });
+            node.kind === "commit" && node.parents.indexOf(parent) > 0 ? target.color : node.color,
+        },
+      ];
     }),
   );
   const commitNodes = ordered.filter((node) => node.kind === "commit");
   // A narrow, fixed graph column keeps commit messages aligned like a Git log.
   const labelX = ordered.reduce((rightmost, node) => Math.max(rightmost, node.x), GRAPH_LEFT) + 28;
-  for (const node of commitNodes) node.labelX = labelX;
   return {
     nodes: ordered,
     rows,
@@ -503,10 +489,7 @@ export function layoutProjectGraph(
     unlinkedNodes: orphans,
     edges,
     lanes,
-    width: commitNodes.reduce(
-      (width, node) => Math.max(width, node.labelX + NODE_WIDTH + 24),
-      labelX + NODE_WIDTH + 24,
-    ),
+    width: labelX + NODE_WIDTH + 24,
     height: rows.length * ROW_HEIGHT,
   };
 }
