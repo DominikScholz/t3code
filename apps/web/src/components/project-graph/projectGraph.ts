@@ -1,3 +1,4 @@
+import { sha256 } from "@noble/hashes/sha2";
 import { normalizeProjectPathForComparison } from "@t3tools/shared/path";
 import type { VcsProjectGraph } from "@t3tools/contracts";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
@@ -8,6 +9,8 @@ export type GraphNode = {
   commitId: string | null;
   subject: string;
   author?: VcsProjectGraph["commits"][number]["author"];
+  historyLabel?: string;
+  historyDetail?: string;
   parents: readonly string[];
   branches: VcsProjectGraph["branches"][number][];
   worktrees: VcsProjectGraph["worktrees"][number][];
@@ -21,16 +24,46 @@ export type GraphNode = {
   stations: GraphStation[];
 };
 export const NODE_WIDTH = 660;
-export const ROW_HEIGHT = 36;
+export const ROW_HEIGHT = 32;
 export const BRANCH_LABEL_WIDTH = 248;
 const GRAPH_LEFT = BRANCH_LABEL_WIDTH + 40;
 const LANE_WIDTH = 28;
-const LINE_COLORS = ["#60a5fa", "#a78bfa", "#34d399", "#fb923c", "#f472b6", "#22d3ee"];
+// Reference palette arranged in rainbow order; interpolate instead of repeating
+// colors when a project has more branches than swatches.
+const LINE_COLORS = [
+  "#c83b21",
+  "#ef7f4e",
+  "#f0d061",
+  "#6c8f52",
+  "#54907e",
+  "#59aac6",
+  "#3a84f8",
+  "#9238ca",
+  "#c84dc0",
+  "#d44581",
+];
+
+function laneColor(index: number, count: number) {
+  const position = (index / Math.max(1, count - 1)) * (LINE_COLORS.length - 1);
+  const lower = Math.floor(position);
+  const from = LINE_COLORS[lower]!;
+  const to = LINE_COLORS[Math.min(lower + 1, LINE_COLORS.length - 1)]!;
+  return `#${[1, 3, 5]
+    .map((offset) => {
+      const a = Number.parseInt(from.slice(offset, offset + 2), 16);
+      const b = Number.parseInt(to.slice(offset, offset + 2), 16);
+      return Math.round(a + (b - a) * (position - lower))
+        .toString(16)
+        .padStart(2, "0");
+    })
+    .join("")}`;
+}
 
 /** Worktree identity wins over stale thread branch metadata after a checkout switch. */
 export function layoutProjectGraph(
   graph: VcsProjectGraph,
   threads: readonly EnvironmentThreadShell[],
+  options: { collapse?: boolean; expanded?: ReadonlySet<string> } = {},
 ) {
   const nodes = new Map<string, GraphNode>();
   const ensure = (
@@ -119,8 +152,12 @@ export function layoutProjectGraph(
     (a, b) =>
       Number(b.branches[0]?.name === graph.defaultBranch) -
         Number(a.branches[0]?.name === graph.defaultBranch) ||
-      (a.branches[0]?.createdAtEpochSeconds ?? Number.MAX_SAFE_INTEGER) -
-        (b.branches[0]?.createdAtEpochSeconds ?? Number.MAX_SAFE_INTEGER) ||
+      (a.branches[0]?.createdAtEpochSeconds ??
+        commits.get(a.commitId ?? "")?.committedAtEpochSeconds ??
+        Number.MAX_SAFE_INTEGER) -
+        (b.branches[0]?.createdAtEpochSeconds ??
+          commits.get(b.commitId ?? "")?.committedAtEpochSeconds ??
+          Number.MAX_SAFE_INTEGER) ||
       refName(a).localeCompare(refName(b)),
   );
   // Keep sources to the left of descendants even if names or timestamps disagree.
@@ -171,12 +208,29 @@ export function layoutProjectGraph(
   // Claim source-branch ancestry before its descendants. Reflog provenance resolves
   // equal tips without inventing a separate shared branch or duplicating commits.
   const assignedRefs = new Set<string>();
+  const refsAtHead = new Map<string, GraphNode[]>();
+  for (const ref of refs) {
+    if (!ref.commitId) continue;
+    const group = refsAtHead.get(ref.commitId) ?? [];
+    group.push(ref);
+    refsAtHead.set(ref.commitId, group);
+  }
   const assignHistory = (ref: GraphNode) => {
     if (assignedRefs.has(ref.id)) return;
     assignedRefs.add(ref.id);
     const originName = ref.branches[0]?.createdFrom;
     const origin = originName ? branchesByName.get(originName) : undefined;
     if (origin) assignHistory(origin);
+    // A surviving ancestor branch owns its history even when its reflog expired.
+    let ancestor = nodes.get(ref.commitId ?? "")?.parents[0];
+    while (ancestor) {
+      const source = refsAtHead.get(ancestor)?.[0];
+      if (source) {
+        assignHistory(source);
+        break;
+      }
+      ancestor = nodes.get(ancestor)?.parents[0];
+    }
     if (ref.commitId) walk(ref.commitId, ref.stations[0]!);
   };
   const base = refs.find((ref) => ref.branches[0]?.name === graph.defaultBranch);
@@ -189,8 +243,79 @@ export function layoutProjectGraph(
   for (const node of nodes.values()) {
     if (node.kind === "commit" && node.stations.length === 0) {
       walk(node.id, addLane(`history:${node.id}`, "Merged history"));
+      node.historyLabel = "History without a local branch";
+      node.historyDetail = "No local branch points to this history.";
     }
   }
+  const commitOrder = new Map(graph.commits.map((commit, index) => [commit.id, index]));
+  const forks = new Map<
+    GraphStation,
+    {
+      parent: GraphStation | undefined;
+      commit: string | undefined;
+      first?: string;
+    }
+  >();
+  for (const node of nodes.values()) {
+    if (node.kind !== "commit") continue;
+    const lane = node.stations[0]!;
+    const parent = nodes.get(node.parents[0] ?? "");
+    if (parent?.stations[0] !== lane)
+      forks.set(lane, { parent: parent?.stations[0], commit: parent?.id, first: node.id });
+    for (const id of node.parents.slice(1)) {
+      const merged = nodes.get(id);
+      if (merged?.historyLabel) {
+        merged.historyLabel = "Merged history";
+        merged.historyDetail = `No local branch points to this history. Merged by “${node.subject}”.`;
+      }
+    }
+  }
+  for (const ref of refs) {
+    const lane = ref.stations[0]!;
+    const target = nodes.get(ref.commitId ?? "");
+    if (!forks.has(lane) && target?.stations[0] !== lane)
+      forks.set(lane, { parent: target?.stations[0], commit: target?.id });
+  }
+  const compareForks = (a: (typeof lanes)[number], b: (typeof lanes)[number]) => {
+    const aFork = forks.get(a);
+    const bFork = forks.get(b);
+    const aTime = commits.get(aFork?.commit ?? "")?.committedAtEpochSeconds;
+    const bTime = commits.get(bFork?.commit ?? "")?.committedAtEpochSeconds;
+    return (
+      (aTime !== undefined && bTime !== undefined ? aTime - bTime : 0) ||
+      // Topological order remains useful with older servers or timestamp ties.
+      (commitOrder.get(bFork?.commit ?? "") ?? -1) - (commitOrder.get(aFork?.commit ?? "") ?? -1) ||
+      (commits.get(aFork?.first ?? "")?.committedAtEpochSeconds ?? Number.MAX_SAFE_INTEGER) -
+        (commits.get(bFork?.first ?? "")?.committedAtEpochSeconds ?? Number.MAX_SAFE_INTEGER) ||
+      a.lane - b.lane
+    );
+  };
+  // Order by actual divergence, not when a local ref happened to be created.
+  // A source must still precede its descendants, including shared-tip aliases.
+  const pending = new Set(lanes);
+  const sorted: typeof lanes = [];
+  const placed = new Set<GraphStation>();
+  const baseLane = base?.stations[0];
+  while (pending.size) {
+    const candidates = [...pending].filter((lane) => {
+      const parent = forks.get(lane)?.parent;
+      return !parent || placed.has(parent);
+    });
+    const next =
+      (baseLane && !placed.has(baseLane) ? lanes.find((lane) => lane === baseLane) : undefined) ??
+      candidates.sort(compareForks)[0] ??
+      [...pending][0]!;
+    pending.delete(next);
+    placed.add(next);
+    sorted.push(next);
+  }
+  lanes.splice(0, lanes.length, ...sorted);
+  for (const [index, lane] of lanes.entries()) {
+    lane.lane = index;
+    lane.x = GRAPH_LEFT + index * LANE_WIDTH;
+    lane.color = laneColor(index, lanes.length);
+  }
+  refs.sort((a, b) => a.stations[0]!.lane - b.stations[0]!.lane);
   const orphans = [...nodes.values()].filter((node) => node.id.startsWith("missing-"));
   const ordered = [
     ...refs,
@@ -198,16 +323,6 @@ export function layoutProjectGraph(
     ...orphans,
   ];
   const refsByCommit = new Map<string, GraphNode[]>();
-  for (const ref of refs) {
-    ref.height =
-      36 + Math.min(3, ref.threads.filter((thread) => thread.settledAt === null).length) * 24;
-    if (ref.commitId) {
-      const group = refsByCommit.get(ref.commitId) ?? [];
-      group.push(ref);
-      refsByCommit.set(ref.commitId, group);
-    }
-  }
-  let y = 24;
   for (const node of ordered) {
     const station = node.stations[0];
     node.x = station?.x ?? GRAPH_LEFT;
@@ -217,36 +332,105 @@ export function layoutProjectGraph(
         Number(a.settledAt !== null) - Number(b.settledAt !== null) ||
         b.updatedAt.localeCompare(a.updatedAt),
     );
-    if (node.kind !== "commit") continue;
-    const labels = refsByCommit.get(node.id) ?? [];
-    const rowHeight = Math.max(
-      ROW_HEIGHT,
-      labels.reduce((height, ref) => height + ref.height, 0),
-    );
-    let labelY = y;
-    for (const ref of labels) {
-      ref.y = labelY;
-      labelY += ref.height;
+  }
+  for (const ref of refs) {
+    if (!ref.commitId) continue;
+    const group = refsByCommit.get(ref.commitId) ?? [];
+    group.push(ref);
+    refsByCommit.set(ref.commitId, group);
+  }
+  let rows: {
+    id: string;
+    y: number;
+    commit?: GraphNode;
+    ref?: GraphNode;
+    thread?: EnvironmentThreadShell;
+    refs?: GraphNode[];
+    collapsed?: GraphNode[];
+    expanded?: boolean;
+  }[] = [];
+  const appendRow = (row: Omit<(typeof rows)[number], "y">) => {
+    const y = rows.length * ROW_HEIGHT;
+    rows.push({ ...row, y });
+  };
+  const appendThreads = (ref: GraphNode) => {
+    for (const thread of ref.threads) {
+      if (thread.settledAt === null)
+        appendRow({ id: `thread:${thread.environmentId}:${thread.id}`, ref, thread });
     }
-    node.y = y + (rowHeight - ROW_HEIGHT) / 2;
-    y += rowHeight;
+  };
+  for (const commit of ordered.filter((node) => node.kind === "commit")) {
+    const labels = refsByCommit.get(commit.id) ?? [];
+    const clean = labels.filter((ref) => !ref.worktrees.some((tree) => tree.dirty === true));
+    for (const ref of labels.filter((ref) => !clean.includes(ref))) {
+      appendRow({ id: ref.id, ref });
+      appendThreads(ref);
+    }
+    appendRow({ id: commit.id, commit, refs: clean });
+    for (const ref of clean) appendThreads(ref);
   }
-  // Unborn checkouts still have labels, but no fabricated commit or connector.
+  // Unborn checkouts have rows but no fabricated commits.
   for (const ref of refs.filter((node) => !node.commitId)) {
-    ref.y = y;
-    y += ref.height;
+    appendRow({ id: ref.id, ref });
+    appendThreads(ref);
   }
+  if (options.collapse) {
+    const childCounts = new Map<string, number>();
+    for (const commit of graph.commits) {
+      for (const parent of commit.parents)
+        childCounts.set(parent, (childCounts.get(parent) ?? 0) + 1);
+    }
+    const folded: typeof rows = [];
+    let run: GraphNode[] = [];
+    const flush = () => {
+      if (!run.length) return;
+      const id = `collapsed:${run[0]!.id}:${run.at(-1)!.id}`;
+      if (run.length > 1) {
+        const expanded = options.expanded?.has(id) ?? false;
+        folded.push({ id, y: 0, collapsed: run, expanded });
+        if (expanded) for (const commit of run) folded.push({ id: commit.id, y: 0, commit });
+      } else for (const commit of run) folded.push({ id: commit.id, y: 0, commit });
+      run = [];
+    };
+    for (const row of rows) {
+      const commit = row.commit;
+      const eligible =
+        commit &&
+        !commit.historyLabel &&
+        !refsByCommit.has(commit.id) &&
+        commit.parents.length === 1 &&
+        (childCounts.get(commit.id) ?? 0) === 1;
+      if (!eligible) {
+        flush();
+        folded.push(row);
+        continue;
+      }
+      const previous = run.at(-1);
+      if (previous && (previous.parents[0] !== commit.id || previous.x !== commit.x)) flush();
+      run.push(commit);
+    }
+    flush();
+    rows = folded;
+  }
+  for (const [index, row] of rows.entries()) {
+    row.y = index * ROW_HEIGHT;
+    if (row.commit) row.commit.y = row.y;
+    if (row.ref && !row.thread) row.ref.y = row.y;
+    for (const ref of row.refs ?? []) ref.y = row.y;
+    if (!row.expanded) for (const commit of row.collapsed ?? []) commit.y = row.y;
+  }
+
   const edges = ordered.flatMap((node) =>
     node.parents.flatMap((parent) => {
       const target = nodes.get(parent);
-      if (!target) return [];
+      if (!target || (node.kind === "commit" && node.y === target.y)) return [];
       return node.stations.map((station) => {
         const targetStation =
           target.stations.find((entry) => entry.lane === station.lane) ?? target.stations[0];
         return {
           from: {
             ...node,
-            x: node.kind === "ref" ? BRANCH_LABEL_WIDTH + 8 : station.x,
+            x: station.x,
             color: station.color,
           },
           to: { ...target, x: targetStation?.x ?? target.x },
@@ -260,11 +444,12 @@ export function layoutProjectGraph(
   );
   const commitNodes = ordered.filter((node) => node.kind === "commit");
   // A narrow, fixed graph column keeps commit messages aligned like a Git log.
-  const labelX =
-    commitNodes.reduce((rightmost, node) => Math.max(rightmost, node.x), GRAPH_LEFT) + 28;
+  const labelX = ordered.reduce((rightmost, node) => Math.max(rightmost, node.x), GRAPH_LEFT) + 28;
   for (const node of commitNodes) node.labelX = labelX;
   return {
     nodes: ordered,
+    rows,
+    labelX,
     commitNodes,
     unlinkedNodes: orphans,
     edges,
@@ -273,18 +458,23 @@ export function layoutProjectGraph(
       (width, node) => Math.max(width, node.labelX + NODE_WIDTH + 24),
       labelX + NODE_WIDTH + 24,
     ),
-    height: y + 48,
+    height: rows.length * ROW_HEIGHT,
   };
 }
 
-export function graphEdgePath(from: GraphNode, to: GraphNode) {
+export function graphEdgePath(from: GraphNode, to: GraphNode, includeRefLabel = true) {
   const x1 = from.x,
     y1 = from.y + ROW_HEIGHT / 2;
   const x2 = to.x,
     y2 = to.y + ROW_HEIGHT / 2;
   if (from.kind === "ref") {
-    const elbow = x1 + (x2 - x1) / 2;
-    return `M ${x1} ${y1} C ${elbow} ${y1}, ${elbow} ${y2}, ${x2} ${y2}`;
+    if (y1 === y2) return `M ${BRANCH_LABEL_WIDTH + 8} ${y1} H ${x2}`;
+    const start = includeRefLabel ? `M ${BRANCH_LABEL_WIDTH + 8} ${y1} H ${x1}` : `M ${x1} ${y1}`;
+    if (x1 === x2) return `${start} V ${y2}`;
+    const bendY = y2 - ROW_HEIGHT / 2;
+    const radius = Math.min(6, Math.abs(x1 - x2) / 2);
+    const direction = Math.sign(x2 - x1);
+    return `${start} V ${bendY - radius} Q ${x1} ${bendY} ${x1 + direction * radius} ${bendY} H ${x2 - direction * radius} Q ${x2} ${bendY} ${x2} ${bendY + radius} V ${y2}`;
   }
   if (x1 === x2) return `M ${x1} ${y1} V ${y2}`;
   const direction = Math.sign(x2 - x1);
@@ -316,7 +506,7 @@ export function canCloseGraphWorktree(
   );
 }
 
-/** Only public GitHub noreply identities have a known portrait; other authors stay local. */
+/** Prefer a known GitHub identity; Gravatar uses the normalized email hash. */
 export function graphAuthorIdentity(author: GraphNode["author"]) {
   const name = author?.name.trim() || "Unknown author";
   const words = name.split(/\s+/u);
@@ -326,5 +516,16 @@ export function graphAuthorIdentity(author: GraphNode["author"]) {
   const login = author?.email.match(
     /^(?:\d+\+)?([a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?)@users\.noreply\.github\.com$/iu,
   )?.[1];
-  return { name, initials, avatarUrl: login ? `https://github.com/${login}.png?size=40` : null };
+  const email = author?.email.trim().toLowerCase();
+  const hash = email
+    ? Array.from(sha256(new TextEncoder().encode(email)), (byte) =>
+        byte.toString(16).padStart(2, "0"),
+      ).join("")
+    : null;
+  return {
+    name,
+    initials,
+    avatarUrl: login ? `https://github.com/${login}.png?size=40` : null,
+    gravatarUrl: hash ? `https://www.gravatar.com/avatar/${hash}?s=40&d=404` : null,
+  };
 }

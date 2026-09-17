@@ -64,6 +64,25 @@ export const readProjectGraph = Effect.fn("GitVcsDriver.projectGraph")(function*
       prunable: fields.some((field) => field === "prunable" || field.startsWith("prunable ")),
     });
   }
+  const worktreeStates = yield* Effect.forEach(
+    worktrees,
+    (tree) =>
+      execute({
+        operation: "GitVcsDriver.projectGraph.worktreeStatus",
+        cwd: tree.path,
+        args: ["--no-optional-locks", "status", "--porcelain=v1", "--untracked-files=normal"],
+        allowNonZeroExit: true,
+        timeoutMs: 5_000,
+        maxOutputBytes: 64 * 1024,
+      }).pipe(
+        Effect.map((result) => ({
+          ...tree,
+          dirty: result.exitCode === 0 ? result.stdout.length > 0 : null,
+        })),
+        Effect.orElseSucceed(() => ({ ...tree, dirty: null })),
+      ),
+    { concurrency: 2 },
+  );
   const remoteDefault =
     defaultResult.exitCode === 0
       ? defaultResult.stdout.trim().replace(/^refs\/remotes\/origin\//, "")
@@ -100,7 +119,7 @@ export const readProjectGraph = Effect.fn("GitVcsDriver.projectGraph")(function*
             "--topo-order",
             "--parents",
             `--max-count=${commitLimit + 1}`,
-            "--format=%H%x00%P%x00%s%x00%aN%x00%aE",
+            "--format=%H%x00%P%x00%s%x00%aN%x00%aE%x00%ct",
             "--",
           ]),
       heads.length === 0
@@ -144,8 +163,15 @@ export const readProjectGraph = Effect.fn("GitVcsDriver.projectGraph")(function*
   }
   const merged = new Set(mergedResult?.stdout.trim().split("\n") ?? []);
   const commits = (history?.stdout.trim().split("\n").filter(Boolean) ?? []).map((line) => {
-    const [id = "", parents = "", subject = "", name = "", email = ""] = line.split("\0");
-    return { id, parents: parents.split(" ").filter(Boolean), subject, author: { name, email } };
+    const [id = "", parents = "", subject = "", name = "", email = "", timestamp = ""] =
+      line.split("\0");
+    return {
+      id,
+      parents: parents.split(" ").filter(Boolean),
+      subject,
+      author: { name, email },
+      committedAtEpochSeconds: Math.max(0, Number(timestamp)),
+    };
   });
   return {
     defaultBranch,
@@ -159,7 +185,7 @@ export const readProjectGraph = Effect.fn("GitVcsDriver.projectGraph")(function*
       merged: baseRef === null ? null : merged.has(ref.name),
     })),
     commits: commits.slice(0, commitLimit),
-    worktrees,
+    worktrees: worktreeStates,
     truncated: commits.length > commitLimit,
   } satisfies VcsProjectGraph;
 });

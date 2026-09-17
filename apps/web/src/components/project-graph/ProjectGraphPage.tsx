@@ -5,20 +5,27 @@ import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime"
 import { normalizeProjectPathForComparison } from "@t3tools/shared/path";
 import type { EnvironmentId, VcsProjectGraph } from "@t3tools/contracts";
 import {
-  GitBranchIcon,
   CheckIcon,
-  MaximizeIcon,
   MessageSquareIcon,
-  MinusIcon,
   MoreHorizontalIcon,
-  PlusIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
   RefreshCwIcon,
   SearchIcon,
   SettingsIcon,
   XIcon,
   FolderGit2Icon,
 } from "lucide-react";
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import { readLocalApi } from "../../localApi";
 import type { SidebarProjectGroupMember } from "../../sidebarProjectGrouping";
@@ -30,6 +37,8 @@ import { vcsEnvironment } from "../../state/vcs";
 import { useSettingsProjectGroups } from "../settings/useSettingsProjectGroups";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
+import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
+import { resolveGraphAvatar } from "./graphAvatar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   BRANCH_LABEL_WIDTH,
@@ -64,96 +73,117 @@ export function ProjectGraphPage({
         This project is not available. Choose a project from the sidebar.
       </div>
     );
-  return (
-    <div className="flex h-full min-h-0 flex-1 flex-col bg-background">
-      <header className="flex flex-wrap items-center gap-3 border-b border-border px-5 py-3">
-        <GitBranchIcon className="size-5 text-primary" />
-        <div className="min-w-0 flex-1">
-          <h1 className="truncate text-sm font-semibold">
-            {group.displayName}{" "}
-            <span className="ml-2 font-normal text-muted-foreground">/ Project graph</span>
-          </h1>
-          <p className="truncate font-mono text-[11px] text-muted-foreground">
-            {member.workspaceRoot}
-          </p>
-        </div>
-        {group.memberProjects.length > 1 && (
-          <select
-            aria-label="Project checkout"
-            className="max-w-72 rounded-md border border-border bg-background px-2 py-1 text-xs"
-            value={`${member.environmentId}:${member.id}`}
-            onChange={(event) =>
-              void navigate({
-                to: "/project-graph/$projectKey",
-                params: { projectKey },
-                search: {
-                  checkout: event.target.value,
-                  ...(gitEnvironment ? { gitEnvironment } : {}),
-                },
-                replace: true,
-              })
-            }
-          >
-            {group.memberProjects.map((entry) => (
-              <option
-                key={`${entry.environmentId}:${entry.id}`}
-                value={`${entry.environmentId}:${entry.id}`}
-              >
-                {entry.environmentLabel ?? "Local"} · {entry.workspaceRoot}
-              </option>
-            ))}
-          </select>
-        )}
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() =>
-            void navigate({
-              to: "/settings/projects",
-              search: { project: projectKey, machine: member.environmentId },
-            })
-          }
+  const controls = (
+    <>
+      <Tooltip>
+        <TooltipTrigger
+          render={<span tabIndex={0} className="max-w-40 shrink-0 truncate text-xs font-medium" />}
         >
-          <SettingsIcon className="size-4" /> Settings
-        </Button>
-      </header>
-      {environments.length > 1 && (
-        <div className="flex flex-wrap items-center gap-2 border-b border-border px-5 py-2 text-xs text-muted-foreground">
-          <label htmlFor="graph-git-source">Read Git from</label>
-          <select
-            id="graph-git-source"
-            className="max-w-96 rounded-md border border-border bg-background px-2 py-1 text-foreground"
-            value={gitEnvironment ?? member.environmentId}
-            onChange={(event) =>
-              void navigate({
-                to: "/project-graph/$projectKey",
-                params: { projectKey },
-                search: {
-                  gitEnvironment: event.target.value,
-                  checkout: `${member.environmentId}:${member.id}`,
-                },
-                replace: true,
-              })
-            }
-          >
-            {environments.map((environment) => (
-              <option key={environment.environmentId} value={environment.environmentId}>
-                {environment.label} · {environment.displayUrl ?? environment.environmentId}
-                {environment.environmentId === member.environmentId ? " (threads live here)" : ""}
-              </option>
-            ))}
-          </select>
-          {gitEnvironment && gitEnvironment !== member.environmentId && (
-            <span>
-              Threads stay live on {member.environmentLabel ?? "their environment"}. Choose a Git
-              source with access to the same checkout path.
-            </span>
-          )}
-        </div>
-      )}
+          {group.displayName}
+        </TooltipTrigger>
+        <TooltipPopup>{member.workspaceRoot}</TooltipPopup>
+      </Tooltip>
+      <Popover>
+        <PopoverTrigger
+          aria-label="Graph options"
+          className="flex size-7 shrink-0 items-center justify-center rounded hover:bg-accent"
+        >
+          <SettingsIcon className="size-3.5" />
+        </PopoverTrigger>
+        <PopoverPopup align="start" className="w-80">
+          <div className="flex flex-col gap-3 text-xs">
+            <p className="break-all font-mono text-[10px] text-muted-foreground">
+              {member.workspaceRoot}
+            </p>
+            {group.memberProjects.length > 1 && (
+              <label className="flex flex-col gap-1.5">
+                Project checkout
+                <select
+                  aria-label="Project checkout"
+                  className="w-full rounded border border-border bg-background p-1.5"
+                  value={`${member.environmentId}:${member.id}`}
+                  onChange={(event) =>
+                    void navigate({
+                      to: "/project-graph/$projectKey",
+                      params: { projectKey },
+                      search: {
+                        checkout: event.target.value,
+                        ...(gitEnvironment ? { gitEnvironment } : {}),
+                      },
+                      replace: true,
+                    })
+                  }
+                >
+                  {group.memberProjects.map((entry) => (
+                    <option
+                      key={`${entry.environmentId}:${entry.id}`}
+                      value={`${entry.environmentId}:${entry.id}`}
+                    >
+                      {entry.environmentLabel ?? "Local"} · {entry.workspaceRoot}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {environments.length > 1 && (
+              <label className="flex flex-col gap-1.5">
+                Read Git from
+                <select
+                  aria-label="Read Git from"
+                  className="w-full rounded border border-border bg-background p-1.5"
+                  value={gitEnvironment ?? member.environmentId}
+                  onChange={(event) =>
+                    void navigate({
+                      to: "/project-graph/$projectKey",
+                      params: { projectKey },
+                      search: {
+                        gitEnvironment: event.target.value,
+                        checkout: `${member.environmentId}:${member.id}`,
+                      },
+                      replace: true,
+                    })
+                  }
+                >
+                  {environments.map((environment) => (
+                    <option key={environment.environmentId} value={environment.environmentId}>
+                      {environment.label} · {environment.displayUrl ?? environment.environmentId}
+                      {environment.environmentId === member.environmentId
+                        ? " (threads live here)"
+                        : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {gitEnvironment && gitEnvironment !== member.environmentId && (
+              <p className="text-[11px] text-muted-foreground">
+                Threads stay live on {member.environmentLabel ?? "their environment"}. The Git
+                source must have access to the same checkout path.
+              </p>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                void navigate({
+                  to: "/settings/projects",
+                  search: { project: projectKey, machine: member.environmentId },
+                })
+              }
+            >
+              Project settings
+            </Button>
+          </div>
+        </PopoverPopup>
+      </Popover>
+    </>
+  );
+  return (
+    <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-background">
       <ProjectGraph
         key={`${member.environmentId}:${member.id}`}
         member={member}
+        controls={controls}
         gitEnvironmentId={
           environments.find((entry) => entry.environmentId === gitEnvironment)?.environmentId ??
           member.environmentId
@@ -166,7 +196,9 @@ export function ProjectGraphPage({
 function ProjectGraph({
   member,
   gitEnvironmentId,
+  controls,
 }: {
+  controls: ReactNode;
   member: SidebarProjectGroupMember;
   gitEnvironmentId: EnvironmentId;
 }) {
@@ -317,7 +349,8 @@ function ProjectGraph({
         </div>
       )}
       {graph ? (
-        <GraphCanvas
+        <GraphLog
+          controls={controls}
           graph={graph}
           threads={threads}
           onOpenThread={openThread}
@@ -331,21 +364,27 @@ function ProjectGraph({
           loadingOlder={!query.data?.graph && !query.error}
         />
       ) : (
-        <div className="flex flex-1 items-center justify-center p-8 text-sm text-muted-foreground">
-          {query.isPending && !query.data && !query.error
-            ? "Reading local branches and worktrees…"
-            : query.data?.isRepo === false
-              ? "This project is not a Git repository."
-              : query.error
-                ? "The graph could not be loaded."
-                : "This environment does not support project graphs yet. Update it, or select a Git source on the same machine above."}
-        </div>
+        <>
+          <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border px-3">
+            {controls}
+          </div>
+          <div className="flex flex-1 items-center justify-center p-8 text-sm text-muted-foreground">
+            {query.isPending && !query.data && !query.error
+              ? "Reading local branches and worktrees…"
+              : query.data?.isRepo === false
+                ? "This project is not a Git repository."
+                : query.error
+                  ? "The graph could not be loaded."
+                  : "This environment does not support project graphs yet. Update it, or select a Git source on the same machine above."}
+          </div>
+        </>
       )}
     </>
   );
 }
 
-type GraphCanvasProps = {
+type GraphLogProps = {
+  controls: ReactNode;
   graph: VcsProjectGraph;
   threads: readonly EnvironmentThreadShell[];
   onOpenThread: (thread: EnvironmentThreadShell) => void;
@@ -358,10 +397,9 @@ type GraphCanvasProps = {
   loadOlder: () => void;
   loadingOlder: boolean;
 };
-const MIN_ZOOM = 0.15;
-const MAX_ZOOM = 2;
 
-function GraphCanvas({
+function GraphLog({
+  controls,
   graph,
   threads,
   onOpenThread,
@@ -370,15 +408,23 @@ function GraphCanvas({
   closing,
   loadOlder,
   loadingOlder,
-}: GraphCanvasProps) {
-  const layout = useMemo(() => layoutProjectGraph(graph, threads), [graph, threads]);
-  const [view, setView] = useState({ x: 16, y: 12, zoom: 1 });
+}: GraphLogProps) {
+  const [scrollTop, setScrollTop] = useState(0);
   const [size, setSize] = useState({ width: 1000, height: 700 });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [unsettledOnly, setUnsettledOnly] = useState(false);
-  const canvas = useRef<HTMLDivElement>(null);
-  const drag = useRef<{ x: number; y: number; pointer: number } | null>(null);
+  const [collapse, setCollapse] = useState(true);
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
+  const layout = useMemo(
+    () =>
+      layoutProjectGraph(graph, threads, {
+        collapse: collapse && !search.trim() && !unsettledOnly,
+        expanded,
+      }),
+    [graph, threads, collapse, expanded, search, unsettledOnly],
+  );
+  const scroller = useRef<HTMLDivElement>(null);
   const selected = useMemo(() => {
     if (selectedId === "unlinked" && layout.unlinkedNodes[0])
       return {
@@ -423,184 +469,115 @@ function GraphCanvas({
     (thread) => thread.archivedAt === null && thread.settledAt === null,
   ).length;
   useEffect(() => {
-    if (!canvas.current) return;
+    if (!scroller.current) return;
     const observer = new ResizeObserver(([entry]) => {
       if (entry) setSize({ width: entry.contentRect.width, height: entry.contentRect.height });
     });
-    observer.observe(canvas.current);
+    observer.observe(scroller.current);
     return () => observer.disconnect();
   }, []);
-  const zoomAt = useCallback(
-    (factor: number, x: number, y: number) =>
-      setView((old) => {
-        const zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, old.zoom * factor));
-        return {
-          x: x - ((x - old.x) * zoom) / old.zoom,
-          y: y - ((y - old.y) * zoom) / old.zoom,
-          zoom,
-        };
-      }),
-    [],
-  );
-  useEffect(() => {
-    const element = canvas.current;
-    if (!element) return;
-    const wheel = (event: WheelEvent) => {
-      if ((event.target as HTMLElement).closest("[data-graph-thread-list]")) return;
-      event.preventDefault();
-      if (event.ctrlKey || event.metaKey) {
-        const rect = element.getBoundingClientRect();
-        zoomAt(Math.exp(-event.deltaY * 0.01), event.clientX - rect.left, event.clientY - rect.top);
-      } else setView((old) => ({ ...old, x: old.x - event.deltaX, y: old.y - event.deltaY }));
-    };
-    element.addEventListener("wheel", wheel, { passive: false });
-    return () => element.removeEventListener("wheel", wheel);
-  }, [zoomAt]);
-  const fit = () => {
-    const zoom = Math.max(
-      MIN_ZOOM,
-      Math.min(1, (size.width - 96) / layout.width, (size.height - 96) / layout.height),
-    );
-    setView({
-      x: (size.width - layout.width * zoom) / 2,
-      y: (size.height - layout.height * zoom) / 2,
-      zoom,
-    });
-  };
   const focus = (node: GraphNode) => {
     setSelectedId(node.id);
-    setView({
-      zoom: 1,
-      x: 24,
-      y: Math.max(64, (size.height - node.height) / 2) - node.y,
-    });
+    scroller.current?.scrollTo({ top: Math.max(0, node.y - size.height / 2), left: 0 });
   };
-  const bounds = {
-    left: -view.x / view.zoom - 400,
-    top: -view.y / view.zoom - 300,
-    right: (size.width - view.x) / view.zoom + 400,
-    bottom: (size.height - view.y) / view.zoom + 300,
-  };
-  const visible = layout.commitNodes.filter(
-    (node) =>
-      node.labelX + NODE_WIDTH >= bounds.left &&
-      node.x <= bounds.right &&
-      node.y + node.height >= bounds.top &&
-      node.y <= bounds.bottom,
+  const bounds = { top: scrollTop - 320, bottom: scrollTop + size.height + 320 };
+  const visibleRows = layout.rows.slice(
+    Math.max(0, Math.floor(bounds.top / ROW_HEIGHT)),
+    Math.ceil(bounds.bottom / ROW_HEIGHT),
   );
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
-      <div className="flex flex-wrap items-center gap-3 border-b border-border px-5 py-2.5">
-        <div className="relative w-64">
-          <SearchIcon className="pointer-events-none absolute left-2.5 top-2.5 size-3.5 text-muted-foreground" />
+      <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border px-3">
+        {controls}
+        <div className="relative min-w-20 max-w-56 flex-1">
+          <SearchIcon className="pointer-events-none absolute left-2 top-1.5 size-3.5 text-muted-foreground" />
           <Input
             aria-label="Find branch, thread or worktree"
-            placeholder="Find branch, thread or worktree…"
-            className="h-8 pl-8 text-xs"
+            placeholder="Find in graph…"
+            className="h-7 pl-7 text-xs"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
           />
         </div>
         <Button
           size="sm"
+          className="h-7 shrink-0 px-2 text-[11px]"
           variant={unsettledOnly ? "secondary" : "ghost"}
           aria-pressed={unsettledOnly}
           onClick={() => setUnsettledOnly((value) => !value)}
         >
-          <span className="size-1.5 rounded-full bg-foreground/60" />
           {unsettledCount} unsettled
         </Button>
         {layout.unlinkedNodes.length > 0 && (
-          <Button size="sm" variant="ghost" onClick={() => setSelectedId("unlinked")}>
-            <MessageSquareIcon className="size-3.5" />
+          <Button
+            size="sm"
+            className="h-7 shrink-0 px-2 text-[11px]"
+            variant="ghost"
+            onClick={() => setSelectedId("unlinked")}
+          >
             {layout.unlinkedNodes.reduce((count, node) => count + node.threads.length, 0)} unlinked
-            threads
           </Button>
         )}
-        <span className="ml-auto text-xs text-muted-foreground">
-          {graph.commits.length} commits · {graph.branches.length} branches ·{" "}
-          {graph.worktrees.length} worktrees
+        <span className="ml-auto hidden shrink-0 text-[10px] text-muted-foreground xl:inline">
+          {graph.commits.length} commits · {graph.branches.length} branches
         </span>
-        <Button variant="ghost" size="icon-sm" aria-label="Refresh graph" onClick={refresh}>
-          <RefreshCwIcon className="size-4" />
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 shrink-0 text-[11px]"
+          onClick={() => {
+            setCollapse((value) => !value);
+            setExpanded(new Set());
+          }}
+        >
+          {collapse ? "Expand all" : "Collapse all"}
+        </Button>
+        {graph.truncated && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 shrink-0 text-[11px]"
+            onClick={loadOlder}
+            disabled={loadingOlder}
+          >
+            {loadingOlder ? "Loading…" : "Load older"}
+          </Button>
+        )}
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="shrink-0"
+          aria-label="Refresh graph"
+          onClick={refresh}
+        >
+          <RefreshCwIcon className="size-3.5" />
         </Button>
       </div>
       <div
-        ref={canvas}
+        ref={scroller}
         role="region"
-        aria-label="Project branch graph. Drag or scroll to pan. Pinch or use zoom buttons to zoom. Arrow keys pan; F fits the graph."
+        aria-label="Project branch graph. Scroll vertically for history and horizontally for details."
         tabIndex={0}
-        className="relative min-h-0 flex-1 touch-none overflow-hidden outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-        style={{
-          cursor: "grab",
-        }}
-        onPointerDown={(event) => {
-          if (event.button !== 0 || (event.target as HTMLElement).closest("button, a, input"))
-            return;
-          drag.current = { x: event.clientX, y: event.clientY, pointer: event.pointerId };
-          event.currentTarget.setPointerCapture(event.pointerId);
-          event.currentTarget.focus();
-        }}
-        onPointerMove={(event) => {
-          const previous = drag.current;
-          if (!previous || previous.pointer !== event.pointerId) return;
-          const dx = event.clientX - previous.x,
-            dy = event.clientY - previous.y;
-          drag.current = { x: event.clientX, y: event.clientY, pointer: event.pointerId };
-          setView((old) => ({ ...old, x: old.x + dx, y: old.y + dy }));
-        }}
-        onPointerUp={() => {
-          drag.current = null;
-        }}
-        onPointerCancel={() => {
-          drag.current = null;
-        }}
-        onLostPointerCapture={() => {
-          drag.current = null;
-        }}
+        className="relative min-h-0 min-w-0 flex-1 overflow-auto overscroll-contain outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
         onKeyDown={(event) => {
-          if (event.target !== event.currentTarget) return;
-          const directions: Record<string, [number, number]> = {
-            ArrowLeft: [80, 0],
-            ArrowRight: [-80, 0],
-            ArrowUp: [0, 80],
-            ArrowDown: [0, -80],
-          };
-          const direction = directions[event.key];
-          if (direction) {
-            event.preventDefault();
-            setView((old) => ({ ...old, x: old.x + direction[0], y: old.y + direction[1] }));
-          }
-          if (event.key.toLowerCase() === "f") fit();
           if (event.key === "Escape") setSelectedId(null);
         }}
       >
         <div
-          className="absolute left-0 top-0 origin-top-left"
-          style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})` }}
+          className="relative min-w-full"
+          style={{ width: layout.width, height: Math.max(layout.height, size.height) }}
         >
-          {layout.lanes
-            .filter((lane) =>
-              layout.nodes.some(
-                (node) =>
-                  node.id === lane.id &&
-                  node.y + node.height >= bounds.top &&
-                  node.y <= bounds.bottom,
-              ),
-            )
-            .map((lane) => (
-              <GraphLaneHeader
-                key={lane.id}
-                lane={lane}
-                node={layout.nodes.find((node) => node.id === lane.id)}
-                defaultBranch={graph.defaultBranch}
-                selected={selectedId === lane.id}
-                dimmed={filtering && !matches.has(lane.id)}
-                onSelect={setSelectedId}
-                onWorktreeMenu={onWorktreeMenu}
-                onOpenThread={onOpenThread}
-              />
-            ))}
+          {visibleRows.map((row) => (
+            <div
+              key={`band:${row.id}`}
+              className={`absolute left-0 w-full border-b border-border/25 ${selectedId === row.id || (row.ref && selectedId === row.ref.id) ? "bg-accent/60" : ""}`}
+              style={{
+                top: row.y,
+                height: ROW_HEIGHT,
+              }}
+            />
+          ))}
           <svg
             className="pointer-events-none absolute left-0 top-0 overflow-visible"
             width={1}
@@ -610,31 +587,139 @@ function GraphCanvas({
             {layout.edges
               .filter(
                 ({ from, to }) =>
-                  Math.max(from.y, to.y) >= bounds.top && Math.min(from.y, to.y) <= bounds.bottom,
+                  Math.max(from.y, to.y) + ROW_HEIGHT >= bounds.top &&
+                  Math.min(from.y, to.y) <= bounds.bottom,
               )
-              .map(({ from, to, color }) => (
-                <path
-                  key={`${from.id}:${from.x}:${to.id}:${to.x}`}
-                  d={graphEdgePath(from, to)}
-                  fill="none"
-                  stroke={color}
-                  strokeWidth={from.kind === "ref" ? 1.5 : 2.5}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  opacity={from.kind === "ref" ? 0.5 : 0.85}
-                />
-              ))}
+              .map(({ from, to, color }) => {
+                const pending = from.kind === "ref" && from.worktrees.some((tree) => tree.dirty);
+                return (
+                  <g key={`${from.id}:${from.x}:${to.id}:${to.x}`}>
+                    {pending && (
+                      <path
+                        d={`M ${BRANCH_LABEL_WIDTH + 8} ${from.y + ROW_HEIGHT / 2} H ${from.x}`}
+                        stroke={color}
+                        strokeWidth={1}
+                        opacity={0.5}
+                      />
+                    )}
+                    <path
+                      d={graphEdgePath(from, to, !pending)}
+                      fill="none"
+                      stroke={color}
+                      strokeWidth={from.kind === "ref" ? 1.5 : 2}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeDasharray={pending ? "3 4" : undefined}
+                      opacity={from.kind === "ref" ? 0.6 : 0.85}
+                    />
+                  </g>
+                );
+              })}
           </svg>
-          {visible.map((node) => (
-            <GraphRow
-              key={node.id}
-              node={node}
-              labelX={node.labelX}
-              selected={node.id === selectedId}
-              dimmed={filtering && !matches.has(node.id)}
-              onSelect={setSelectedId}
-            />
-          ))}
+          {visibleRows.map((row) =>
+            row.collapsed ? (
+              <button
+                key={row.id}
+                className="absolute flex items-center gap-2 text-left text-[11px] text-muted-foreground hover:text-foreground"
+                style={{ left: layout.labelX + 8, top: row.y, height: ROW_HEIGHT }}
+                aria-expanded={row.expanded}
+                onClick={() =>
+                  setExpanded((old) => {
+                    const next = new Set(old);
+                    if (next.has(row.id)) next.delete(row.id);
+                    else next.add(row.id);
+                    return next;
+                  })
+                }
+              >
+                {row.expanded ? (
+                  <ChevronDownIcon className="size-3.5" />
+                ) : (
+                  <ChevronRightIcon className="size-3.5" />
+                )}
+                {row.expanded ? "Collapse" : "Show"} {row.collapsed.length} commits
+              </button>
+            ) : row.thread ? (
+              <Tooltip key={row.id}>
+                <TooltipTrigger
+                  className="absolute left-3 flex items-center gap-2 truncate px-2 text-left text-[11px] text-foreground/75 hover:bg-accent"
+                  style={{ top: row.y, height: ROW_HEIGHT, width: BRANCH_LABEL_WIDTH - 8 }}
+                  aria-label={`Open unsettled thread: ${row.thread.title}`}
+                  onClick={() => onOpenThread(row.thread!)}
+                >
+                  <MessageSquareIcon className="size-3 shrink-0" />
+                  <span className="truncate">{row.thread.title}</span>
+                </TooltipTrigger>
+                <TooltipPopup>Unsettled · {row.thread.title}</TooltipPopup>
+              </Tooltip>
+            ) : (
+              <div key={row.id}>
+                {(row.refs ?? []).map((ref, index, refs) => (
+                  <GraphBranchLabel
+                    key={ref.id}
+                    node={ref}
+                    defaultBranch={graph.defaultBranch}
+                    selected={selectedId === ref.id}
+                    dimmed={filtering && !matches.has(ref.id)}
+                    onSelect={setSelectedId}
+                    onWorktreeMenu={onWorktreeMenu}
+                    labelIndex={index}
+                    labelCount={refs.length}
+                  />
+                ))}
+                {row.ref && (
+                  <GraphBranchLabel
+                    node={row.ref}
+                    defaultBranch={graph.defaultBranch}
+                    selected={selectedId === row.ref.id}
+                    dimmed={filtering && !matches.has(row.ref.id)}
+                    onSelect={setSelectedId}
+                    onWorktreeMenu={onWorktreeMenu}
+                  />
+                )}
+                {row.commit ? (
+                  <GraphRow
+                    node={row.commit}
+                    labelX={layout.labelX}
+                    selected={row.commit.id === selectedId}
+                    dimmed={
+                      filtering &&
+                      !matches.has(row.commit.id) &&
+                      !(row.ref && matches.has(row.ref.id)) &&
+                      !row.refs?.some((ref) => matches.has(ref.id))
+                    }
+                    onSelect={setSelectedId}
+                  />
+                ) : (
+                  row.ref && (
+                    <>
+                      <button
+                        className="absolute flex size-7 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        style={{
+                          left: row.ref.x - 14,
+                          top: row.y + ROW_HEIGHT / 2 - 14,
+                        }}
+                        aria-label={`Inspect branch ${row.ref.branches[0]?.name ?? "detached checkout"}`}
+                        onClick={() => setSelectedId(row.ref!.id)}
+                      >
+                        <span
+                          className="size-2.5 rounded-full ring-[3px] ring-background"
+                          style={{ backgroundColor: row.ref.color }}
+                        />
+                      </button>
+                      <button
+                        className="absolute flex items-center text-[11px] text-muted-foreground hover:text-foreground"
+                        style={{ left: layout.labelX + 8, top: row.y, height: ROW_HEIGHT }}
+                        onClick={() => setSelectedId(row.ref!.id)}
+                      >
+                        {row.ref.commitId ? "Uncommitted changes" : "No commits yet"}
+                      </button>
+                    </>
+                  )
+                )}
+              </div>
+            ),
+          )}
         </div>
         {layout.nodes.length === 0 && (
           <div className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground">
@@ -643,7 +728,7 @@ function GraphCanvas({
         )}
       </div>
       {filtering && (
-        <div className="absolute left-4 top-16 z-10 max-h-64 w-72 overflow-auto rounded-lg border border-border bg-popover p-2 shadow-lg">
+        <div className="absolute left-4 top-11 z-10 max-h-64 w-72 overflow-auto rounded-lg border border-border bg-popover p-2 shadow-lg">
           <p className="px-2 py-1 text-[11px] text-muted-foreground">
             {matches.size} matching nodes
           </p>
@@ -666,7 +751,7 @@ function GraphCanvas({
       {selected && (
         <aside
           aria-label="Graph node details"
-          className="absolute right-3 top-16 bottom-14 z-10 flex w-80 max-w-[calc(100%-24px)] flex-col overflow-auto rounded-xl border border-border bg-popover p-4 shadow-xl"
+          className="absolute right-3 top-11 bottom-3 z-10 flex w-80 max-w-[calc(100%-24px)] flex-col overflow-auto rounded-xl border border-border bg-popover p-4 shadow-xl"
         >
           <div className="mb-4 flex items-center justify-between">
             <span className="text-xs font-medium text-muted-foreground">
@@ -687,6 +772,9 @@ function GraphCanvas({
               (selected.id.startsWith("missing-") ? "No matching local ref" : "No commits yet")}
           </p>
           <h2 className="mb-2 text-xs font-semibold">Branches</h2>
+          {selected.historyDetail && (
+            <p className="mb-3 text-xs text-muted-foreground">{selected.historyDetail}</p>
+          )}
           {selected.branches.map((branch) => (
             <div key={branch.name} className="mb-2 rounded-md border border-border p-2">
               <p className="break-all font-mono text-xs">{branch.name}</p>
@@ -762,179 +850,116 @@ function GraphCanvas({
           ))}
         </aside>
       )}
-      <footer className="flex flex-wrap items-center gap-3 border-t border-border bg-background px-4 py-2 text-[11px] text-muted-foreground">
-        <span className="flex items-center gap-1.5">
-          <CheckIcon className="size-3.5 text-emerald-500" />
-          {graph.defaultBranch
-            ? `Merged = reachable from ${graph.defaultBranch}`
-            : "No default branch; merge status unknown"}
-        </span>
-        <span className="hidden lg:inline">
-          One author marker per commit · labels connect to branch tips · lines show ancestry
-        </span>
-        {graph.truncated && (
-          <span className="text-foreground">
-            {graph.commits.length.toLocaleString()} commits loaded.
-            <button
-              className="ml-2 underline underline-offset-4 hover:text-foreground"
-              onClick={loadOlder}
-              disabled={loadingOlder}
-            >
-              {loadingOlder ? "Loading…" : "Load older commits"}
-            </button>
-          </span>
-        )}
-        <div className="ml-auto flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Zoom out"
-            onClick={() => zoomAt(0.8, size.width / 2, size.height / 2)}
-          >
-            <MinusIcon className="size-3.5" />
-          </Button>
-          <span className="w-10 text-center font-mono">{Math.round(view.zoom * 100)}%</span>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Zoom in"
-            onClick={() => zoomAt(1.25, size.width / 2, size.height / 2)}
-          >
-            <PlusIcon className="size-3.5" />
-          </Button>
-          <Button variant="ghost" size="icon-sm" aria-label="Fit graph" onClick={fit}>
-            <MaximizeIcon className="size-3.5" />
-          </Button>
-        </div>
-      </footer>
     </div>
   );
 }
 
-const GraphLaneHeader = memo(function GraphLaneHeader({
-  lane,
+const GraphBranchLabel = memo(function GraphBranchLabel({
   node,
   defaultBranch,
   selected,
   dimmed,
   onSelect,
   onWorktreeMenu,
-  onOpenThread,
+  labelIndex = 0,
+  labelCount = 1,
 }: {
-  lane: ReturnType<typeof layoutProjectGraph>["lanes"][number];
-  node: GraphNode | undefined;
+  labelIndex?: number;
+  labelCount?: number;
+  node: GraphNode;
   defaultBranch: string | null;
   selected: boolean;
   dimmed: boolean;
   onSelect: (id: string) => void;
-  onWorktreeMenu: GraphCanvasProps["onWorktreeMenu"];
-  onOpenThread: GraphCanvasProps["onOpenThread"];
+  onWorktreeMenu: GraphLogProps["onWorktreeMenu"];
 }) {
-  const branch = node?.branches[0];
-  const unsettledThreads = node?.threads.filter((thread) => thread.settledAt === null) ?? [];
-  const unsettled = unsettledThreads.length;
+  const branch = node.branches[0];
+  const name = branch?.name ?? "Detached checkout";
+  const unsettled = node.threads.filter((thread) => thread.settledAt === null).length;
+  const status =
+    branch?.name === defaultBranch
+      ? "Default branch"
+      : branch?.merged === true
+        ? `Merged into ${defaultBranch}`
+        : branch?.merged === false
+          ? `Not merged into ${defaultBranch}`
+          : "Merge status unknown";
   const worktreeMenu = (event: MouseEvent) => {
-    const tree = node?.worktrees[0];
-    if (tree && node?.worktrees.length === 1)
+    const tree = node.worktrees[0];
+    if (tree && node.worktrees.length === 1)
       onWorktreeMenu(tree, { x: event.clientX, y: event.clientY });
-    else if (node) onSelect(node.id);
+    else onSelect(node.id);
   };
-  if (!node) return null;
   return (
     <div
-      className={`absolute overflow-hidden rounded-sm border-l-2 ${selected ? "bg-primary/10" : ""}`}
+      className={`absolute flex items-center gap-1 rounded-sm px-2 text-foreground ${selected ? "ring-1 ring-inset ring-foreground/40" : ""}`}
       style={{
-        left: 8,
-        top: node.y,
-        width: BRANCH_LABEL_WIDTH,
-        height: node.height - 2,
-        borderColor: lane.color,
-        backgroundColor: selected
-          ? undefined
-          : `color-mix(in srgb, ${lane.color} 7%, var(--background))`,
+        left: 8 + labelIndex * (BRANCH_LABEL_WIDTH / labelCount),
+        top: node.y + 4,
+        width: BRANCH_LABEL_WIDTH / labelCount - (labelCount > 1 ? 3 : 0),
+        height: ROW_HEIGHT - 8,
+        backgroundColor: `color-mix(in srgb, ${node.color} 30%, var(--background))`,
         opacity: dimmed ? 0.3 : 1,
       }}
     >
-      <div className="flex h-5 items-center gap-1 px-2">
+      <Tooltip>
+        <TooltipTrigger
+          className="flex min-w-0 flex-1 items-center gap-1.5 text-left font-mono text-[11px]"
+          aria-label={`Branch lane ${name}`}
+          onClick={() => onSelect(node.id)}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            worktreeMenu(event);
+          }}
+        >
+          {branch?.current && <CheckIcon className="size-3 shrink-0" />}
+          <span className="truncate">{labelCount > 1 ? name.split("/").at(-1) : name}</span>
+          {branch?.merged === true && !branch.current && (
+            <CheckIcon className="size-3 shrink-0 opacity-60" />
+          )}
+        </TooltipTrigger>
+        <TooltipPopup>
+          {name} · {status}
+          {branch?.current ? " · HEAD" : ""}
+        </TooltipPopup>
+      </Tooltip>
+      {node.worktrees.length > 0 && labelCount === 1 && (
         <Tooltip>
           <TooltipTrigger
-            className="min-w-0 flex-1 truncate text-left font-mono text-[11px]"
-            style={{ color: lane.color }}
-            onClick={() => onSelect(node.id)}
-            aria-label={`Branch lane ${lane.name}`}
+            className="flex shrink-0 items-center gap-1 rounded px-1 text-[10px] opacity-75 hover:bg-white/10 hover:opacity-100"
+            aria-label={`${name}: ${node.worktrees.length} worktree${node.worktrees.length === 1 ? "" : "s"}`}
+            onClick={worktreeMenu}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              worktreeMenu(event);
+            }}
           >
-            {lane.name}
+            <FolderGit2Icon className="size-3" />
+            {node.worktrees.length}
           </TooltipTrigger>
-          <TooltipPopup>{lane.name}</TooltipPopup>
+          <TooltipPopup>
+            {node.worktrees.map((tree) => (
+              <div key={tree.path} className="max-w-96 break-all font-mono text-[11px]">
+                {tree.path}
+              </div>
+            ))}
+          </TooltipPopup>
         </Tooltip>
-        {node.worktrees.length > 0 && (
-          <Tooltip>
-            <TooltipTrigger
-              className="flex shrink-0 items-center gap-1 rounded px-1 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground"
-              aria-label={`${lane.name}: ${node.worktrees.length} worktree${node.worktrees.length === 1 ? "" : "s"}`}
-              onClick={worktreeMenu}
-              onContextMenu={(event) => {
-                event.preventDefault();
-                worktreeMenu(event);
-              }}
-            >
-              <FolderGit2Icon className="size-3" />
-              {node.worktrees.length}
-            </TooltipTrigger>
-            <TooltipPopup>
-              {node.worktrees.map((tree) => (
-                <div key={tree.path} className="max-w-96 break-all font-mono text-[11px]">
-                  {tree.path}
-                </div>
-              ))}
-            </TooltipPopup>
-          </Tooltip>
-        )}
-        {node.threads.length > 0 && (
-          <button
-            className="flex shrink-0 items-center gap-1 rounded px-1 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground"
-            aria-label={`${lane.name}: ${node.threads.length} threads, ${unsettled} unsettled`}
+      )}
+      {node.threads.length > 0 && labelCount === 1 && (
+        <Tooltip>
+          <TooltipTrigger
+            className="flex shrink-0 items-center gap-1 rounded px-1 text-[10px] opacity-75 hover:bg-white/10 hover:opacity-100"
+            aria-label={`${name}: ${node.threads.length} threads, ${unsettled} unsettled`}
             onClick={() => onSelect(node.id)}
           >
             <MessageSquareIcon className="size-3" />
             {node.threads.length}
-          </button>
-        )}
-      </div>
-      <div className="flex h-4 items-center gap-2 px-2 text-[9px] text-muted-foreground">
-        {branch && (
-          <span>
-            {branch.name === defaultBranch
-              ? "base"
-              : branch.merged === true
-                ? "merged"
-                : branch.merged === false
-                  ? "unmerged"
-                  : "unknown"}
-            {branch.current ? " · HEAD" : ""}
-          </span>
-        )}
-        {unsettled > 0 && <span className="ml-auto text-foreground/80">{unsettled} unsettled</span>}
-      </div>
-      {unsettledThreads.length > 0 && (
-        <div
-          data-graph-thread-list
-          className="max-h-[72px] overflow-y-auto overscroll-contain px-1"
-        >
-          {unsettledThreads.map((thread) => (
-            <Tooltip key={thread.id}>
-              <TooltipTrigger
-                className="flex h-6 w-full items-center gap-1.5 rounded px-1 text-left text-[10px] text-foreground/85 hover:bg-accent"
-                aria-label={`Open unsettled thread: ${thread.title}`}
-                onClick={() => onOpenThread(thread)}
-              >
-                <MessageSquareIcon className="size-3 shrink-0" />
-                <span className="truncate">{thread.title}</span>
-              </TooltipTrigger>
-              <TooltipPopup>{thread.title}</TooltipPopup>
-            </Tooltip>
-          ))}
-        </div>
+          </TooltipTrigger>
+          <TooltipPopup>
+            {node.threads.length} threads · {unsettled} unsettled
+          </TooltipPopup>
+        </Tooltip>
       )}
     </div>
   );
@@ -953,10 +978,44 @@ const GraphRow = memo(function GraphRow({
   dimmed: boolean;
   onSelect: (id: string) => void;
 }) {
-  const author = graphAuthorIdentity(node.author);
-  const [failedAvatar, setFailedAvatar] = useState<string | null>(null);
+  const author = useMemo(() => graphAuthorIdentity(node.author), [node.author]);
+  const [failedAvatars, setFailedAvatars] = useState<readonly string[]>([]);
+  const directAvatar = [author.avatarUrl, author.gravatarUrl].find(
+    (url) => url && !failedAvatars.includes(url),
+  );
+  const email = node.author?.email.trim().toLowerCase() ?? "";
+  const [resolved, setResolved] = useState<{ email: string; url: string | null } | null>(null);
+  useEffect(() => {
+    if (directAvatar || !email) return;
+    let active = true;
+    void resolveGraphAvatar(email).then((url) => {
+      if (active) setResolved({ email, url });
+    });
+    return () => {
+      active = false;
+    };
+  }, [directAvatar, email]);
+  const fallback = resolved?.email === email ? resolved.url : null;
+  const avatarUrl =
+    directAvatar ?? (fallback && !failedAvatars.includes(fallback) ? fallback : null);
   return (
     <div style={{ opacity: dimmed ? 0.25 : 1 }}>
+      {node.historyLabel && (
+        <Tooltip>
+          <TooltipTrigger
+            className="absolute left-3 flex h-6 items-center gap-2 rounded px-2 text-left text-[11px] text-muted-foreground hover:bg-accent"
+            style={{ top: node.y + 4, width: BRANCH_LABEL_WIDTH }}
+            onClick={() => onSelect(node.id)}
+          >
+            <span
+              className="size-2 shrink-0 rounded-full"
+              style={{ backgroundColor: node.color }}
+            />
+            <span className="truncate">{node.historyLabel}</span>
+          </TooltipTrigger>
+          <TooltipPopup>{node.historyDetail}</TooltipPopup>
+        </Tooltip>
+      )}
       <Tooltip>
         <TooltipTrigger
           className="absolute flex size-7 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -968,14 +1027,14 @@ const GraphRow = memo(function GraphRow({
             className={`flex size-[22px] items-center justify-center overflow-hidden rounded-full border-2 text-[8px] font-semibold ${selected ? "ring-4 ring-primary/20" : ""}`}
             style={{ borderColor: node.color, backgroundColor: node.color, color: "#101018" }}
           >
-            {author.avatarUrl && failedAvatar !== author.avatarUrl ? (
+            {avatarUrl ? (
               <img
-                src={author.avatarUrl}
+                src={avatarUrl}
                 alt=""
                 className="size-full object-cover"
                 loading="lazy"
                 referrerPolicy="no-referrer"
-                onError={() => setFailedAvatar(author.avatarUrl)}
+                onError={() => setFailedAvatars((urls) => [...urls, avatarUrl])}
               />
             ) : (
               author.initials

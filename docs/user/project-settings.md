@@ -65,18 +65,14 @@ local work, resolve it yourself before automatic pulls can resume.
 ## Project graph
 
 On web and desktop, open **Project graph** from the project picker, Project Settings, or the
-command palette. Branch labels sit to the left of the compact commit tracks, connected to their
-tip commits. Labels sharing a tip stack together. The default branch stays first, then source
-branches before descendants; newer siblings appear farther right when reflog metadata is available.
-Shared history appears once on its originating branch when recoverable from local reflogs.
-Every commit has one author marker: a public GitHub noreply portrait when available, otherwise
-initials. Hover it for the author and commit details. Solid lines show parent relationships;
-merge connections use the incoming branch’s color.
-Worktree and thread counts appear in each branch label. Unsettled threads are listed by title;
-select one to open it. Longer lists scroll within the label. Commit messages align in a column
-beside the narrow tracks. Threads without a matching local branch or worktree remain accessible
-through **Unlinked threads**. Select an author marker or branch label for details and threads.
-For projects with multiple checkouts or environments, choose which checkout to explore.
+command palette. Branch labels sit beside their latest commit; branches sharing a tip share
+that commit's row. Worktrees with uncommitted changes have a separate tip. Shared commits
+appear only once. Unsettled threads have separate rows below
+their branch and open when selected. Select a branch or commit for details and worktree actions.
+Author markers use a GitHub portrait or Gravatar when available, then fall back to initials.
+Threads without a matching local checkout are available through **Unlinked**.
+For projects with multiple checkouts or environments, use **Graph options** in the toolbar to
+choose the checkout and Git source.
 
 To see threads from another running T3 Code app, pair it under **Settings → Connections →
 Add environment**, then choose its project in the picker. Threads update live from that app.
@@ -84,9 +80,11 @@ If its version does not support graphs yet, **Read Git from** can use another co
 on the same machine with access to the same checkout path. Thread actions still use the app
 that owns the threads. The graph URL keeps your checkout and Git source selections.
 
-Drag or scroll to pan, pinch or use the zoom buttons to zoom, and press **F** while the canvas
-is focused to fit the graph. Search finds branches, thread titles and worktree paths. Refresh
-reads changes made by external Git tools without fetching from a remote.
+Scroll vertically through history and horizontally for additional details. Search finds branches,
+thread titles and worktree paths. Refresh reads changes made by external Git tools without fetching
+from a remote. Ordinary stretches of history are collapsed by default, keeping branch heads,
+forks and merges visible. Select **Show … commits** to expand a section, or **Expand all** for
+the full history. Searching also reveals collapsed commits.
 
 **Merged** means the branch tip is reachable from the local default branch, or its remote-tracking
 ref if no local default branch exists. Squash and rebase merges may still appear unmerged.

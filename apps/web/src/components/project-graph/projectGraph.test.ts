@@ -80,9 +80,9 @@ describe("project graph", () => {
     expect(feature.threads.map((entry) => entry.id)).toEqual(["thread", "settled"]);
     expect(alias.threads.map((entry) => entry.id)).toEqual(["alias-thread"]);
     expect(commit.threads).toHaveLength(0);
-    expect(feature.y).toBeGreaterThanOrEqual(alias.y + alias.height);
+    expect(feature.y).toBe(alias.y);
     expect(commit.y).toBeGreaterThanOrEqual(alias.y);
-    expect(commit.y).toBeLessThan(feature.y + feature.height);
+    expect(commit.y).toBe(feature.y);
     expect(layout.lanes.map((lane) => lane.name)).toEqual(["main", "alias", "feat/new"]);
     expect(commit.stations).toHaveLength(1);
     expect(commit.x).toBe(alias.x);
@@ -124,11 +124,7 @@ describe("project graph", () => {
       expect(card.worktrees.map((worktree) => worktree.path)).toEqual([worktrees[index]!.path]);
       expect(card.threads.map((entry) => entry.id)).toEqual([`thread-${index}`]);
     }
-    for (let index = 1; index < cards.length; index++) {
-      expect(cards[index]!.y).toBeGreaterThanOrEqual(
-        cards[index - 1]!.y + cards[index - 1]!.height,
-      );
-    }
+    expect(new Set(cards.map((card) => card.y)).size).toBe(1);
     expect(cards.every((card) => card.kind === "ref")).toBe(true);
   });
   it("attaches worktree threads by checkout even when branch metadata is stale", () => {
@@ -382,23 +378,179 @@ describe("project graph", () => {
       },
       [],
     );
-    expect(appended.lanes.slice(0, 4)).toEqual(layout.lanes);
+    expect(appended.lanes.slice(0, 4).map(({ id, x }) => ({ id, x }))).toEqual(
+      layout.lanes.map(({ id, x }) => ({ id, x })),
+    );
     expect(appended.lanes[4]?.name).toBe("000-latest");
   });
-  it("stacks labels at their tip commit without overlapping the following commit's labels", () => {
-    const layout = layoutProjectGraph(graph, [thread(), thread({ worktreePath: "/gone" })]);
-    expect(layout.commitNodes.map((node) => node.id)).toEqual(["feature", "root"]);
-    const refs = layout.nodes.filter((node) => node.kind === "ref").toSorted((a, b) => a.y - b.y);
-    for (let index = 1; index < refs.length; index++) {
-      expect(refs[index]!.y).toBeGreaterThanOrEqual(refs[index - 1]!.y + refs[index - 1]!.height);
-    }
-    expect(layout.unlinkedNodes.flatMap((node) => node.threads)).toHaveLength(1);
-    const root = layout.commitNodes.find((node) => node.id === "root")!;
-    expect(refs.find((node) => node.id === "branch:main")?.y).toBe(root.y);
+  it("orders actual divergence before local ref creation and ignores later merges from main", () => {
+    const history: VcsProjectGraph = {
+      ...graph,
+      worktrees: [],
+      branches: [
+        { name: "main", head: "main-tip", current: true, merged: true },
+        {
+          name: "old-fork",
+          head: "old-tip",
+          current: false,
+          merged: false,
+          createdAtEpochSeconds: 900,
+        },
+        {
+          name: "new-fork",
+          head: "new-tip",
+          current: false,
+          merged: false,
+          createdAtEpochSeconds: 100,
+        },
+      ],
+      commits: [
+        {
+          id: "old-tip",
+          parents: ["old-start", "main-tip"],
+          subject: "Merge main into old branch",
+          committedAtEpochSeconds: 90,
+        },
+        {
+          id: "new-tip",
+          parents: ["main-middle"],
+          subject: "New branch",
+          committedAtEpochSeconds: 50,
+        },
+        { id: "main-tip", parents: ["main-middle"], subject: "Main", committedAtEpochSeconds: 40 },
+        {
+          id: "main-middle",
+          parents: ["root"],
+          subject: "Main middle",
+          committedAtEpochSeconds: 30,
+        },
+        { id: "old-start", parents: ["root"], subject: "Old branch", committedAtEpochSeconds: 20 },
+        { id: "root", parents: [], subject: "Root", committedAtEpochSeconds: 10 },
+      ],
+    };
+    const layout = layoutProjectGraph(history, []);
+    expect(layout.lanes.map((lane) => lane.name)).toEqual(["main", "old-fork", "new-fork"]);
+    // Older servers still sort by the visible fork topology.
+    const undated = layoutProjectGraph(
+      {
+        ...history,
+        commits: history.commits.map(({ id, parents, subject }) => ({ id, parents, subject })),
+      },
+      [],
+    );
+    expect(undated.lanes.map((lane) => lane.name)).toEqual(["main", "old-fork", "new-fork"]);
+  });
+  it("keeps surviving ancestor history on its source even without a reflog", () => {
+    const layout = layoutProjectGraph(
+      {
+        ...graph,
+        worktrees: [],
+        branches: [
+          { name: "main", head: "root", current: true, merged: true },
+          {
+            name: "aaa-child",
+            head: "child",
+            current: false,
+            merged: false,
+            createdAtEpochSeconds: 1,
+          },
+          { name: "zzz-source", head: "source", current: false, merged: false },
+        ],
+        commits: [
+          { id: "child", parents: ["source"], subject: "Child" },
+          { id: "source", parents: ["root"], subject: "Source" },
+          { id: "root", parents: [], subject: "Root" },
+        ],
+      },
+      [],
+    );
+    expect(layout.lanes.map((lane) => lane.name)).toEqual(["main", "zzz-source", "aaa-child"]);
+    expect(layout.commitNodes.find((node) => node.id === "source")?.x).toBe(layout.lanes[1]?.x);
+  });
+  it("labels merged history without inventing a branch and retains that label when collapsed", () => {
+    const layout = layoutProjectGraph(
+      {
+        ...graph,
+        worktrees: [],
+        branches: [{ name: "main", head: "merge", current: true, merged: true }],
+        commits: [
+          { id: "merge", parents: ["root", "side"], subject: "Merge command center" },
+          { id: "side", parents: ["a"], subject: "Crown details" },
+          { id: "a", parents: ["b"], subject: "Crown" },
+          { id: "b", parents: ["root"], subject: "Base geometry" },
+          { id: "root", parents: [], subject: "Root" },
+        ],
+      },
+      [],
+      { collapse: true },
+    );
+    const merged = layout.rows.find((row) => row.commit?.id === "side")?.commit;
+    expect(merged?.historyLabel).toBe("Merged history");
+    expect(merged?.historyDetail).toContain("Merge command center");
+    expect(merged?.branches).toEqual([]);
+    expect(layout.rows.find((row) => row.collapsed)?.collapsed?.map((node) => node.id)).toEqual([
+      "a",
+      "b",
+    ]);
+  });
+  it("attaches clean branch labels to commits and gives only dirty worktrees separate tips", () => {
+    const clean = layoutProjectGraph(graph, [thread()]);
+    expect(clean.rows.filter((row) => row.ref && !row.thread)).toHaveLength(0);
+    expect(clean.rows.flatMap((row) => row.refs ?? [])).toHaveLength(3);
+    for (const row of clean.rows)
+      for (const ref of row.refs ?? []) expect(ref.y).toBe(row.commit!.y);
+    const dirty = layoutProjectGraph({ ...graph, worktrees: [{ ...tree, dirty: true }] }, [
+      thread(),
+    ]);
+    const tips = dirty.rows.filter((row) => row.ref && !row.thread);
+    expect(tips).toHaveLength(1);
+    expect(tips[0]!.ref!.id).toBe("branch:feat/new");
+    expect(tips[0]!.y).toBeLessThan(dirty.commitNodes.find((node) => node.id === "feature")!.y);
+    expect(dirty.rows.flatMap((row) => row.refs ?? []).map((ref) => ref.id)).not.toContain(
+      "branch:feat/new",
+    );
+    expect(dirty.commitNodes).toHaveLength(2);
+    const unknown = layoutProjectGraph({ ...graph, worktrees: [{ ...tree, dirty: null }] }, []);
+    expect(unknown.rows.filter((row) => row.ref)).toHaveLength(0);
+  });
+  it("collapses only ordinary linear history and supports expanding it again", () => {
+    const history: VcsProjectGraph = {
+      ...graph,
+      worktrees: [],
+      branches: [
+        { name: "main", head: "tip", current: true, merged: true },
+        { name: "feature", head: "side", current: false, merged: false },
+      ],
+      commits: [
+        { id: "tip", parents: ["a", "side"], subject: "Merge" },
+        { id: "a", parents: ["b"], subject: "A" },
+        { id: "b", parents: ["fork"], subject: "B" },
+        { id: "side", parents: ["fork"], subject: "Side" },
+        { id: "fork", parents: ["root"], subject: "Fork" },
+        { id: "root", parents: [], subject: "Root" },
+      ],
+    };
+    const compact = layoutProjectGraph(history, [], { collapse: true });
+    const summary = compact.rows.find((row) => row.collapsed)!;
+    expect(summary.collapsed!.map((commit) => commit.id)).toEqual(["a", "b"]);
+    expect(compact.rows.flatMap((row) => (row.commit ? [row.commit.id] : []))).toEqual([
+      "tip",
+      "side",
+      "fork",
+      "root",
+    ]);
+    const expanded = layoutProjectGraph(history, [], {
+      collapse: true,
+      expanded: new Set([summary.id]),
+    });
+    expect(expanded.rows.flatMap((row) => (row.commit ? [row.commit.id] : []))).toEqual(
+      history.commits.map((commit) => commit.id),
+    );
+    expect(expanded.rows.find((row) => row.id === summary.id)?.expanded).toBe(true);
     expect(
-      layout.edges
-        .filter(({ from }) => from.kind === "ref")
-        .every(({ from }) => from.x > BRANCH_LABEL_WIDTH),
+      compact.edges
+        .filter(({ from }) => from.kind === "commit")
+        .every(({ from, to }) => from.y < to.y),
     ).toBe(true);
   });
   it("aligns messages beside narrow tracks while keeping labels to their left", () => {
@@ -406,7 +558,7 @@ describe("project graph", () => {
     expect(new Set(layout.commitNodes.map((node) => node.labelX)).size).toBe(1);
     expect(layout.lanes[1]!.x - layout.lanes[0]!.x).toBeLessThan(36);
     expect(layout.lanes.every((lane) => lane.x > BRANCH_LABEL_WIDTH)).toBe(true);
-    const rightmost = layout.commitNodes.toSorted((a, b) => b.x - a.x)[0]!;
+    const rightmost = layout.lanes.at(-1)!;
     expect(layout.commitNodes[0]!.labelX - rightmost.x).toBeLessThan(36);
   });
   it("keeps commit messages clear of other tracks that continue through the row", () => {
@@ -422,16 +574,29 @@ describe("project graph", () => {
     const right = layout.commitNodes.find((node) => node.id === "right")!;
     expect(left.labelX).toBeGreaterThan(right.x);
   });
-  it("makes room for thread titles in branch headers with a bounded scroll area", () => {
+  it("gives each shared-tip branch and unsettled thread its own uniform row", () => {
     const empty = layoutProjectGraph(graph, []);
-    const one = layoutProjectGraph(graph, [thread()]);
     const many = layoutProjectGraph(
       graph,
       Array.from({ length: 12 }, (_, index) => thread({ id: ThreadId.make(`thread-${index}`) })),
     );
-    expect(one.commitNodes[0]!.y - empty.commitNodes[0]!.y).toBe(12);
-    expect(many.commitNodes[0]!.y - empty.commitNodes[0]!.y).toBe(36);
-    expect(many.nodes.find((node) => node.id === "branch:feat/new")?.threads).toHaveLength(12);
+    expect(many.rows.filter((row) => row.thread)).toHaveLength(12);
+    expect(many.rows.filter((row) => row.commit).map((row) => row.commit!.id)).toEqual([
+      "feature",
+      "root",
+    ]);
+    expect(many.rows.flatMap((row) => row.refs ?? []).map((ref) => ref.id)).toHaveLength(3);
+    expect(new Set(many.rows.map((row) => row.id)).size).toBe(many.rows.length);
+    expect(many.height - empty.height).toBe(12 * ROW_HEIGHT);
+    expect(many.height).toBe(many.rows.length * ROW_HEIGHT);
+    for (const [index, row] of many.rows.entries()) expect(row.y).toBe(index * ROW_HEIGHT);
+    const featureRef = many.nodes.find((node) => node.id === "branch:feat/new")!;
+    expect(
+      many.rows
+        .filter((row) => row.thread)
+        .every((row) => row.ref === featureRef && row.y > featureRef.y),
+    ).toBe(true);
+    expect(many.commitNodes[0]!.y).toBe(empty.commitNodes[0]!.y);
   });
   it("protects main, locked and missing worktrees", () => {
     expect(canCloseGraphWorktree(tree, [])).toBe(true);
@@ -449,11 +614,13 @@ it("protects worktrees with live background tasks and normalizes checkout paths"
   expect(layout.nodes.find((node) => node.id === "branch:feat/new")?.threads).toHaveLength(1);
 });
 
-it("uses author initials locally and portraits only for recognizable public GitHub identities", () => {
+it("offers GitHub and Gravatar portraits with local initials as the final fallback", () => {
   expect(graphAuthorIdentity({ name: "Ada Lovelace", email: "private@example.com" })).toEqual({
     name: "Ada Lovelace",
     initials: "AL",
     avatarUrl: null,
+    gravatarUrl:
+      "https://www.gravatar.com/avatar/8172a023f8733c1c6377deccd97aefc669393f2a8f077b5bee2d1682d9bc307e?s=40&d=404",
   });
   expect(
     graphAuthorIdentity({ name: "Ada", email: "123+octocat@users.noreply.github.com" }).avatarUrl,
@@ -461,7 +628,15 @@ it("uses author initials locally and portraits only for recognizable public GitH
   expect(
     graphAuthorIdentity({ name: "Ada", email: "octocat@users.noreply.github.com" }).avatarUrl,
   ).toBe("https://github.com/octocat.png?size=40");
-  expect(graphAuthorIdentity(undefined).initials).toBe("?");
+  expect(graphAuthorIdentity(undefined)).toEqual({
+    name: "Unknown author",
+    initials: "?",
+    avatarUrl: null,
+    gravatarUrl: null,
+  });
+  expect(graphAuthorIdentity({ name: "Ada", email: " Private@Example.Com  " }).gravatarUrl).toBe(
+    graphAuthorIdentity({ name: "Ada", email: "private@example.com" }).gravatarUrl,
+  );
   expect(graphAuthorIdentity({ name: "李 明", email: "" }).initials).toBe("李明");
   const author = { name: "Ada Lovelace", email: "ada@example.com" };
   const layout = layoutProjectGraph(

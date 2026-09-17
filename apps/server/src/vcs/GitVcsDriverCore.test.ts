@@ -801,6 +801,24 @@ it.effect("backs off failed upstream refreshes across linked worktrees", () =>
 
 it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
   describe("project graph", () => {
+    it.effect("reports untracked, staged and unstaged changes per worktree", () =>
+      Effect.gen(function* () {
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const read = () => driver.listRefs({ cwd, includeGraph: true, refresh: true });
+        assert.equal((yield* read()).graph!.worktrees[0]!.dirty, false);
+        yield* writeTextFile(cwd, "pending.txt", "one");
+        assert.equal((yield* read()).graph!.worktrees[0]!.dirty, true);
+        yield* git(cwd, ["add", "pending.txt"]);
+        assert.equal((yield* read()).graph!.worktrees[0]!.dirty, true);
+        yield* git(cwd, ["commit", "-m", "add pending file"]);
+        assert.equal((yield* read()).graph!.worktrees[0]!.dirty, false);
+        yield* writeTextFile(cwd, "pending.txt", "two");
+        assert.equal((yield* read()).graph!.worktrees[0]!.dirty, true);
+      }),
+    );
+
     it.effect(
       "returns all local tips, ancestry, merge state and detached worktrees without picker pagination",
       () =>
@@ -876,6 +894,10 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
             [tip],
           );
           assert.deepEqual(recent.commits[0]?.parents, [middle]);
+          assert.equal(
+            recent.commits[0]?.committedAtEpochSeconds,
+            Number(yield* git(cwd, ["show", "-s", "--format=%ct", tip])),
+          );
           assert.deepEqual(recent.commits[0]?.author, {
             name: "Ada Lovelace",
             email: "123+octocat@users.noreply.github.com",
