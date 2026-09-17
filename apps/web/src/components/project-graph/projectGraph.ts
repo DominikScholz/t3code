@@ -2,6 +2,7 @@ import { sha256 } from "@noble/hashes/sha2";
 import { normalizeProjectPathForComparison } from "@t3tools/shared/path";
 import type { VcsProjectGraph } from "@t3tools/contracts";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+import { PROJECT_ICON_COLORS } from "../../projectIconColors";
 
 export type GraphStation = { lane: number; x: number; color: string };
 export type GraphNode = {
@@ -27,19 +28,12 @@ export const ROW_HEIGHT = 32;
 export const BRANCH_LABEL_WIDTH = 248;
 const GRAPH_LEFT = BRANCH_LABEL_WIDTH + 40;
 const LANE_WIDTH = 28;
-// Ten saturated rainbow colors, independent of branch count.
-const LINE_COLORS = [
-  "#f04438",
-  "#ff7a24",
-  "#f5d02b",
-  "#83c83f",
-  "#19b88b",
-  "#12b5d0",
-  "#187bff",
-  "#9428e8",
-  "#d72ddd",
-  "#ed287a",
-];
+// Reuse the icon picker’s rainbow, starting at cyan and skipping neutral gray.
+const branchColors = PROJECT_ICON_COLORS.filter(({ value }) => value !== "gray");
+const cyanIndex = branchColors.findIndex(({ value }) => value === "cyan");
+const LINE_COLORS = [...branchColors.slice(cyanIndex), ...branchColors.slice(0, cyanIndex)].map(
+  ({ value }) => `var(--color-${value}-500)`,
+);
 
 /** Worktree identity wins over stale thread branch metadata after a checkout switch. */
 export function layoutProjectGraph(
