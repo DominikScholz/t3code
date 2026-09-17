@@ -13,6 +13,11 @@ import {
   SettingsIcon,
   FolderGitIcon,
   FolderIcon,
+  Columns2Icon,
+  FoldVerticalIcon,
+  UnfoldVerticalIcon,
+  UnlinkIcon,
+  HistoryIcon,
 } from "lucide-react";
 import {
   memo,
@@ -522,18 +527,26 @@ function GraphLog({
         <div className="flex shrink-0 items-center gap-1">
           <Button
             size="compact"
-            className="text-xs sm:text-xs"
+            className="gap-1.5 text-xs sm:text-xs [&_svg]:mx-0"
             variant={unsettledOnly ? "secondary" : "ghost"}
             aria-pressed={unsettledOnly}
             onClick={() => setUnsettledOnly((value) => !value)}
           >
+            <MessageSquareIcon aria-hidden className="size-3.5" />
             {unsettledCount} unsettled
           </Button>
           {layout.unlinkedNodes.length > 0 && (
             <Popover>
               <PopoverTrigger
-                render={<Button variant="ghost" size="compact" className="text-xs sm:text-xs" />}
+                render={
+                  <Button
+                    variant="ghost"
+                    size="compact"
+                    className="gap-1.5 text-xs sm:text-xs [&_svg]:mx-0"
+                  />
+                }
               >
+                <UnlinkIcon aria-hidden className="size-3.5" />
                 {layout.unlinkedNodes.reduce((count, node) => count + node.threads.length, 0)}{" "}
                 unlinked
               </PopoverTrigger>
@@ -564,31 +577,38 @@ function GraphLog({
           <Button
             variant={compactLanes ? "secondary" : "ghost"}
             size="compact"
-            className="text-xs sm:text-xs"
+            className="gap-1.5 text-xs sm:text-xs [&_svg]:mx-0"
             aria-pressed={compactLanes}
             onClick={() => setCompactLanes((value) => !value)}
           >
+            <Columns2Icon aria-hidden className="size-3.5" />
             Compact lanes
           </Button>
           <Button
             variant="ghost"
             size="compact"
-            className="text-xs sm:text-xs"
+            className="gap-1.5 text-xs sm:text-xs [&_svg]:mx-0"
             onClick={() => {
               setCollapse((value) => !value);
               setExpanded(new Set());
             }}
           >
+            {collapse ? (
+              <UnfoldVerticalIcon aria-hidden className="size-3.5" />
+            ) : (
+              <FoldVerticalIcon aria-hidden className="size-3.5" />
+            )}
             {collapse ? "Expand all" : "Collapse all"}
           </Button>
           {graph.truncated && (
             <Button
               variant="ghost"
               size="compact"
-              className="text-xs sm:text-xs"
+              className="gap-1.5 text-xs sm:text-xs [&_svg]:mx-0"
               onClick={loadOlder}
               disabled={loadingOlder}
             >
+              <HistoryIcon aria-hidden className="size-3.5" />
               {loadingOlder ? "Loading…" : "Load older"}
             </Button>
           )}
