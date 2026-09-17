@@ -77,11 +77,13 @@ export function ProjectGraphPage({
       </div>
     );
   const controls = (
-    <>
+    <div className="flex h-7 shrink-0 items-center gap-2">
       <ProjectFavicon project={group} className="size-4 shrink-0" />
       <Tooltip>
         <TooltipTrigger
-          render={<span tabIndex={0} className="max-w-40 shrink-0 truncate text-xs font-medium" />}
+          render={
+            <span tabIndex={0} className="max-w-40 truncate text-xs font-medium leading-none" />
+          }
         >
           {group.displayName}
         </TooltipTrigger>
@@ -90,7 +92,7 @@ export function ProjectGraphPage({
       <Popover>
         <PopoverTrigger
           aria-label="Graph options"
-          className="flex size-7 shrink-0 items-center justify-center rounded hover:bg-accent"
+          render={<Button variant="ghost" size="compact" className="size-7 p-0" />}
         >
           <SettingsIcon className="size-3.5" />
         </PopoverTrigger>
@@ -180,7 +182,7 @@ export function ProjectGraphPage({
           </div>
         </PopoverPopup>
       </Popover>
-    </>
+    </div>
   );
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-background">
@@ -503,96 +505,104 @@ function GraphLog({
   );
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
-      <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border px-3">
+      <div className="flex h-10 shrink-0 items-center gap-3 overflow-x-auto border-b border-border px-3">
         {controls}
-        <div className="relative min-w-20 max-w-56 flex-1">
-          <SearchIcon className="pointer-events-none absolute left-2 top-1.5 size-3.5 text-muted-foreground" />
+        <span aria-hidden className="h-4 w-px shrink-0 bg-border" />
+        <div className="relative w-48 min-w-36 shrink">
+          <SearchIcon className="pointer-events-none absolute left-2 top-1/2 z-10 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
             aria-label="Find branch, thread or worktree"
             placeholder="Find in graph…"
-            className="h-7 pl-7 text-xs"
+            size="compact"
+            className="h-7 [&_input]:h-full [&_input]:pl-7 [&_input]:leading-normal"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
           />
         </div>
-        <Button
-          size="sm"
-          className="h-7 shrink-0 px-2 text-[11px]"
-          variant={unsettledOnly ? "secondary" : "ghost"}
-          aria-pressed={unsettledOnly}
-          onClick={() => setUnsettledOnly((value) => !value)}
-        >
-          {unsettledCount} unsettled
-        </Button>
-        {layout.unlinkedNodes.length > 0 && (
-          <Popover>
-            <PopoverTrigger className="h-7 shrink-0 rounded px-2 text-[11px] hover:bg-accent">
-              {layout.unlinkedNodes.reduce((count, node) => count + node.threads.length, 0)}{" "}
-              unlinked
-            </PopoverTrigger>
-            <PopoverPopup align="start" className="max-h-80 w-80 overflow-auto p-2">
-              {layout.unlinkedNodes.map((node) => (
-                <div key={node.id}>
-                  <p className="px-2 py-1 text-[10px] text-muted-foreground">{node.subject}</p>
-                  {node.threads.map((thread) => (
-                    <button
-                      key={`${thread.environmentId}:${thread.id}`}
-                      className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-accent"
-                      onClick={() => onOpenThread(thread)}
-                    >
-                      <MessageSquareIcon className="size-3 shrink-0" />
-                      <span className="truncate">{thread.title}</span>
-                    </button>
-                  ))}
-                </div>
-              ))}
-            </PopoverPopup>
-          </Popover>
-        )}
-        <span className="ml-auto hidden shrink-0 text-[10px] text-muted-foreground xl:inline">
-          {graph.commits.length} commits · {graph.branches.length} branches
-        </span>
-        <Button
-          variant={compactLanes ? "secondary" : "ghost"}
-          size="sm"
-          className="h-7 shrink-0 text-[11px]"
-          aria-pressed={compactLanes}
-          title="Reuse columns for branch histories that do not overlap"
-          onClick={() => setCompactLanes((value) => !value)}
-        >
-          Compact lanes
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 shrink-0 text-[11px]"
-          onClick={() => {
-            setCollapse((value) => !value);
-            setExpanded(new Set());
-          }}
-        >
-          {collapse ? "Expand all" : "Collapse all"}
-        </Button>
-        {graph.truncated && (
+        <div className="flex shrink-0 items-center gap-1">
+          <Button
+            size="compact"
+            className="text-xs sm:text-xs"
+            variant={unsettledOnly ? "secondary" : "ghost"}
+            aria-pressed={unsettledOnly}
+            onClick={() => setUnsettledOnly((value) => !value)}
+          >
+            {unsettledCount} unsettled
+          </Button>
+          {layout.unlinkedNodes.length > 0 && (
+            <Popover>
+              <PopoverTrigger
+                render={<Button variant="ghost" size="compact" className="text-xs sm:text-xs" />}
+              >
+                {layout.unlinkedNodes.reduce((count, node) => count + node.threads.length, 0)}{" "}
+                unlinked
+              </PopoverTrigger>
+              <PopoverPopup align="start" className="max-h-80 w-80 overflow-auto p-2">
+                {layout.unlinkedNodes.map((node) => (
+                  <div key={node.id}>
+                    <p className="px-2 py-1 text-[10px] text-muted-foreground">{node.subject}</p>
+                    {node.threads.map((thread) => (
+                      <button
+                        key={`${thread.environmentId}:${thread.id}`}
+                        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-accent"
+                        onClick={() => onOpenThread(thread)}
+                      >
+                        <MessageSquareIcon className="size-3 shrink-0" />
+                        <span className="truncate">{thread.title}</span>
+                      </button>
+                    ))}
+                  </div>
+                ))}
+              </PopoverPopup>
+            </Popover>
+          )}
+        </div>
+        <div className="ml-auto flex shrink-0 items-center gap-1">
+          <span className="mr-2 hidden shrink-0 text-xs tabular-nums text-muted-foreground 2xl:inline">
+            {graph.commits.length} commits · {graph.branches.length} branches
+          </span>
+          <Button
+            variant={compactLanes ? "secondary" : "ghost"}
+            size="compact"
+            className="text-xs sm:text-xs"
+            aria-pressed={compactLanes}
+            onClick={() => setCompactLanes((value) => !value)}
+          >
+            Compact lanes
+          </Button>
           <Button
             variant="ghost"
-            size="sm"
-            className="h-7 shrink-0 text-[11px]"
-            onClick={loadOlder}
-            disabled={loadingOlder}
+            size="compact"
+            className="text-xs sm:text-xs"
+            onClick={() => {
+              setCollapse((value) => !value);
+              setExpanded(new Set());
+            }}
           >
-            {loadingOlder ? "Loading…" : "Load older"}
+            {collapse ? "Expand all" : "Collapse all"}
           </Button>
-        )}
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className="shrink-0"
-          aria-label="Refresh graph"
-          onClick={refresh}
-        >
-          <RefreshCwIcon className="size-3.5" />
-        </Button>
+          {graph.truncated && (
+            <Button
+              variant="ghost"
+              size="compact"
+              className="text-xs sm:text-xs"
+              onClick={loadOlder}
+              disabled={loadingOlder}
+            >
+              {loadingOlder ? "Loading…" : "Load older"}
+            </Button>
+          )}
+          <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-border" />
+          <Button
+            variant="ghost"
+            size="compact"
+            className="size-7 p-0"
+            aria-label="Refresh graph"
+            onClick={refresh}
+          >
+            <RefreshCwIcon className="size-3.5" />
+          </Button>
+        </div>
       </div>
       <div
         ref={scroller}
