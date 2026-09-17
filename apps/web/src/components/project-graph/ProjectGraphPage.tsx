@@ -8,12 +8,11 @@ import {
   CheckIcon,
   MessageSquareIcon,
   ChevronDownIcon,
-  ChevronRightIcon,
   RefreshCwIcon,
   SearchIcon,
   SettingsIcon,
   FolderGitIcon,
-  GitCommitHorizontalIcon,
+  FolderIcon,
 } from "lucide-react";
 import {
   memo,
@@ -36,6 +35,7 @@ import { useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { vcsEnvironment } from "../../state/vcs";
 import { useSettingsProjectGroups } from "../settings/useSettingsProjectGroups";
+import { ProjectFavicon } from "../ProjectFavicon";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
@@ -78,6 +78,7 @@ export function ProjectGraphPage({
     );
   const controls = (
     <>
+      <ProjectFavicon project={group} className="size-4 shrink-0" />
       <Tooltip>
         <TooltipTrigger
           render={<span tabIndex={0} className="max-w-40 shrink-0 truncate text-xs font-medium" />}
@@ -418,7 +419,7 @@ function GraphLog({
   const [search, setSearch] = useState("");
   const [unsettledOnly, setUnsettledOnly] = useState(false);
   const [collapse, setCollapse] = useState(true);
-  const [compactLanes, setCompactLanes] = useState(false);
+  const [compactLanes, setCompactLanes] = useState(true);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
   const [expandedSettled, setExpandedSettled] = useState<ReadonlySet<string>>(() => new Set());
   const layout = useMemo(
@@ -611,7 +612,7 @@ function GraphLog({
           {visibleRows.map((row) => (
             <div
               key={`band:${row.id}`}
-              className={`absolute left-0 w-full border-b border-border/25 ${selectedY === row.y ? "bg-accent/20" : ""}`}
+              className={`absolute left-0 w-full ${selectedY === row.y ? "bg-accent/20" : ""}`}
               style={{
                 top: row.y,
                 height: ROW_HEIGHT,
@@ -720,7 +721,12 @@ function GraphLog({
               <button
                 key={row.id}
                 className="absolute flex items-center gap-2 text-left text-[11px] text-muted-foreground/50 hover:text-muted-foreground"
-                style={{ left: layout.labelX + 8, top: row.y, height: ROW_HEIGHT }}
+                style={{
+                  left: layout.labelX + 8,
+                  top: row.y,
+                  height: ROW_HEIGHT,
+                  width: NODE_WIDTH - 16,
+                }}
                 aria-expanded={row.expanded}
                 aria-label={`${row.expanded ? "Collapse" : "Expand"} ${row.collapsed.length} commits`}
                 onClick={() =>
@@ -732,13 +738,12 @@ function GraphLog({
                   })
                 }
               >
-                <GitCommitHorizontalIcon aria-hidden className="size-3.5 shrink-0" />
-                <span className="tabular-nums">{row.collapsed.length} commits</span>
-                {row.expanded ? (
-                  <ChevronDownIcon className="size-3.5 shrink-0" />
-                ) : (
-                  <ChevronRightIcon className="size-3.5 shrink-0" />
-                )}
+                <span className="shrink-0 tabular-nums">Commits ({row.collapsed.length})</span>
+                <span aria-hidden className="h-px min-w-2 flex-1 bg-border/60" />
+                <ChevronDownIcon
+                  aria-hidden
+                  className={`size-3 shrink-0 ${row.expanded ? "rotate-180" : ""}`}
+                />
               </button>
             ) : row.settledThreads || row.thread ? null : (
               <div key={row.id}>
@@ -876,7 +881,7 @@ const GraphBranchLabel = memo(function GraphBranchLabel({
       <div
         className="flex h-6 shrink-0 items-center gap-1 px-2"
         style={{
-          backgroundColor: `color-mix(in srgb, ${node.color} ${selected ? 28 : BRANCH_LABEL_OPACITY * 100}%, var(--background))`,
+          backgroundColor: `color-mix(in srgb, ${node.color} ${selected ? 38 : 30}%, var(--background))`,
         }}
       >
         <Tooltip>
@@ -916,7 +921,7 @@ const GraphBranchLabel = memo(function GraphBranchLabel({
           <Tooltip key={tree.path}>
             <TooltipTrigger
               className="flex size-5 shrink-0 items-center justify-center rounded text-foreground hover:bg-foreground/5"
-              aria-label={`Worktree ${tree.path}: ${tree.branch ?? "Detached HEAD"}`}
+              aria-label={`${tree.isMain ? "Local checkout" : "Worktree"} ${tree.path}: ${tree.branch ?? "Detached HEAD"}`}
               disabled={closing === tree.path}
               onClick={(event) => onWorktreeMenu(tree, { x: event.clientX, y: event.clientY })}
               onContextMenu={(event) => {
@@ -924,7 +929,11 @@ const GraphBranchLabel = memo(function GraphBranchLabel({
                 onWorktreeMenu(tree, { x: event.clientX, y: event.clientY });
               }}
             >
-              <FolderGitIcon aria-hidden className="size-3 shrink-0" />
+              {tree.isMain ? (
+                <FolderIcon aria-hidden className="size-3 shrink-0" />
+              ) : (
+                <FolderGitIcon aria-hidden className="size-3 shrink-0" />
+              )}
             </TooltipTrigger>
             <TooltipPopup>
               {closing === tree.path
@@ -949,13 +958,12 @@ const GraphBranchLabel = memo(function GraphBranchLabel({
               aria-label={`${row.settledThreads.length} settled threads for ${name}`}
               onClick={onToggleSettled}
             >
-              <MessageSquareIcon aria-hidden className="size-3 shrink-0" />
-              <span className="tabular-nums">{row.settledThreads.length} settled</span>
-              {row.expanded ? (
-                <ChevronDownIcon className="size-3.5 shrink-0" />
-              ) : (
-                <ChevronRightIcon className="size-3.5 shrink-0" />
-              )}
+              <span className="shrink-0 tabular-nums">Settled ({row.settledThreads.length})</span>
+              <span aria-hidden className="h-px min-w-2 flex-1 bg-border/60" />
+              <ChevronDownIcon
+                aria-hidden
+                className={`size-3 shrink-0 ${row.expanded ? "rotate-180" : ""}`}
+              />
             </button>
           );
         if (row.thread) {
@@ -1104,6 +1112,12 @@ const GraphRow = memo(function GraphRow({
           </TooltipTrigger>
           <TooltipPopup>{node.subject}</TooltipPopup>
         </Tooltip>
+        <button
+          onClick={() => onSelect(node.id)}
+          className="ml-auto shrink-0 font-mono text-[10px] text-muted-foreground/70"
+        >
+          {node.commitId?.slice(0, 8)}
+        </button>
         <GraphTime
           timestamp={
             node.committedAtEpochSeconds === undefined
@@ -1111,12 +1125,6 @@ const GraphRow = memo(function GraphRow({
               : node.committedAtEpochSeconds * 1_000
           }
         />
-        <button
-          onClick={() => onSelect(node.id)}
-          className="ml-auto shrink-0 font-mono text-[10px] text-muted-foreground/70"
-        >
-          {node.commitId?.slice(0, 8)}
-        </button>
       </div>
     </div>
   );
