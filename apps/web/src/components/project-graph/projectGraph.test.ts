@@ -126,6 +126,8 @@ describe("project graph", () => {
     }
     expect(new Set(cards.map((card) => card.y)).size).toBe(1);
     expect(cards.every((card) => card.kind === "ref")).toBe(true);
+    expect(layout.rows.filter((row) => row.thread)).toHaveLength(3);
+    expect(layout.rows).toHaveLength(layout.commitNodes.length + 3);
   });
   it("attaches worktree threads by checkout even when branch metadata is stale", () => {
     const layout = layoutProjectGraph(graph, [thread({ branch: "main", worktreePath: tree.path })]);
@@ -546,6 +548,45 @@ describe("project graph", () => {
       overlapping.lanes.find((entry) => entry.name === "new")!.x,
     );
   });
+  it("keeps settled threads collapsed per branch and expands them inline or through search", () => {
+    const threads = [
+      thread(),
+      thread({
+        id: ThreadId.make("settled-one"),
+        title: "Finished lighting",
+        settledAt: "2026-09-16T10:00:00Z",
+      }),
+      thread({
+        id: ThreadId.make("settled-two"),
+        title: "Finished terrain",
+        settledAt: "2026-09-16T10:00:00Z",
+      }),
+      thread({
+        id: ThreadId.make("archived"),
+        settledAt: "2026-09-16T10:00:00Z",
+        archivedAt: "2026-09-16T11:00:00Z",
+      }),
+    ];
+    const closed = layoutProjectGraph(graph, threads);
+    const group = closed.rows.find((row) => row.settledThreads)!;
+    expect(group.settledThreads!.map((entry) => entry.id)).toEqual(["settled-one", "settled-two"]);
+    expect(group.expanded).toBe(false);
+    expect(closed.rows.flatMap((row) => (row.thread ? [row.thread.id] : []))).toEqual(["thread"]);
+    expect(group.y).toBeGreaterThan(group.ref!.y);
+    const open = layoutProjectGraph(graph, threads, { expandedSettled: new Set([group.ref!.id]) });
+    expect(open.rows.find((row) => row.settledThreads)?.expanded).toBe(true);
+    expect(open.rows.flatMap((row) => (row.thread ? [row.thread.id] : []))).toEqual([
+      "thread",
+      "settled-one",
+      "settled-two",
+    ]);
+    expect(open.height - closed.height).toBe(2 * ROW_HEIGHT);
+    expect(layoutProjectGraph(graph, threads).rows.map((row) => row.id)).toEqual(
+      closed.rows.map((row) => row.id),
+    );
+    const searched = layoutProjectGraph(graph, threads, { threadSearch: "finished lighting" });
+    expect(searched.rows.some((row) => row.thread?.id === "settled-one")).toBe(true);
+  });
   it("attaches clean branch labels to commits and gives only dirty worktrees separate tips", () => {
     const clean = layoutProjectGraph(graph, [thread()]);
     expect(clean.rows.filter((row) => row.ref && !row.thread)).toHaveLength(0);
@@ -565,6 +606,12 @@ describe("project graph", () => {
     expect(dirty.commitNodes).toHaveLength(2);
     const unknown = layoutProjectGraph({ ...graph, worktrees: [{ ...tree, dirty: null }] }, []);
     expect(unknown.rows.filter((row) => row.ref)).toHaveLength(0);
+    for (const layout of [clean, dirty, unknown]) {
+      const ref = layout.nodes.find((node) => node.id === "branch:feat/new")!;
+      expect(ref.worktrees.map((entry) => entry.path)).toEqual([tree.path]);
+      const pendingThread = layout.rows.find((row) => row.thread);
+      if (pendingThread) expect(pendingThread.y).toBe(ref.y + ROW_HEIGHT);
+    }
   });
   it("collapses only ordinary linear history and supports expanding it again", () => {
     const history: VcsProjectGraph = {

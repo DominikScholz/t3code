@@ -46,7 +46,13 @@ const LINE_COLORS = [
 export function layoutProjectGraph(
   graph: VcsProjectGraph,
   threads: readonly EnvironmentThreadShell[],
-  options: { collapse?: boolean; expanded?: ReadonlySet<string>; compactLanes?: boolean } = {},
+  options: {
+    collapse?: boolean;
+    expanded?: ReadonlySet<string>;
+    compactLanes?: boolean;
+    expandedSettled?: ReadonlySet<string>;
+    threadSearch?: string;
+  } = {},
 ) {
   const nodes = new Map<string, GraphNode>();
   const ensure = (
@@ -328,6 +334,7 @@ export function layoutProjectGraph(
     commit?: GraphNode;
     ref?: GraphNode;
     thread?: EnvironmentThreadShell;
+    settledThreads?: readonly EnvironmentThreadShell[];
     refs?: GraphNode[];
     collapsed?: GraphNode[];
     expanded?: boolean;
@@ -336,10 +343,23 @@ export function layoutProjectGraph(
     const y = rows.length * ROW_HEIGHT;
     rows.push({ ...row, y });
   };
-  const appendThreads = (ref: GraphNode) => {
+  const appendDetails = (ref: GraphNode) => {
     for (const thread of ref.threads) {
       if (thread.settledAt === null)
         appendRow({ id: `thread:${thread.environmentId}:${thread.id}`, ref, thread });
+    }
+    const settledThreads = ref.threads.filter((thread) => thread.settledAt !== null);
+    if (settledThreads.length) {
+      const query = options.threadSearch?.trim().toLowerCase();
+      const expanded =
+        options.expandedSettled?.has(ref.id) ||
+        Boolean(
+          query && settledThreads.some((thread) => thread.title.toLowerCase().includes(query)),
+        );
+      appendRow({ id: `settled:${ref.id}`, ref, settledThreads, expanded });
+      if (expanded)
+        for (const thread of settledThreads)
+          appendRow({ id: `thread:${thread.environmentId}:${thread.id}`, ref, thread });
     }
   };
   for (const commit of ordered.filter((node) => node.kind === "commit")) {
@@ -347,15 +367,15 @@ export function layoutProjectGraph(
     const clean = labels.filter((ref) => !ref.worktrees.some((tree) => tree.dirty === true));
     for (const ref of labels.filter((ref) => !clean.includes(ref))) {
       appendRow({ id: ref.id, ref });
-      appendThreads(ref);
+      appendDetails(ref);
     }
     appendRow({ id: commit.id, commit, refs: clean });
-    for (const ref of clean) appendThreads(ref);
+    for (const ref of clean) appendDetails(ref);
   }
   // Unborn checkouts have rows but no fabricated commits.
   for (const ref of refs.filter((node) => !node.commitId)) {
     appendRow({ id: ref.id, ref });
-    appendThreads(ref);
+    appendDetails(ref);
   }
   if (options.collapse) {
     const childCounts = new Map<string, number>();
@@ -398,7 +418,7 @@ export function layoutProjectGraph(
   for (const [index, row] of rows.entries()) {
     row.y = index * ROW_HEIGHT;
     if (row.commit) row.commit.y = row.y;
-    if (row.ref && !row.thread) row.ref.y = row.y;
+    if (row.ref && !row.thread && !row.settledThreads) row.ref.y = row.y;
     for (const ref of row.refs ?? []) ref.y = row.y;
     if (!row.expanded) for (const commit of row.collapsed ?? []) commit.y = row.y;
   }

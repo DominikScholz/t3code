@@ -68,7 +68,8 @@ On web and desktop, open **Project graph** from the project picker, Project Sett
 command palette. Branch labels sit beside their latest commit; branches sharing a tip share
 that commit's row. Worktrees with uncommitted changes have a separate tip. Shared commits
 appear only once. Unsettled threads have separate rows below
-their branch and open when selected. Select a branch or commit for details and worktree actions.
+their branch and open when selected. Expand **Settled threads** beneath a branch to open older
+conversations. Select the worktree icon beside the branch name for worktree actions; hover to see the checkout path.
 Author markers use a GitHub portrait or Gravatar when available, then fall back to initials.
 Threads without a matching local checkout are available through **Unlinked**.
 For projects with multiple checkouts or environments, use **Graph options** in the toolbar to
