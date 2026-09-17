@@ -51,6 +51,8 @@ import {
   type GraphNode,
 } from "./projectGraph";
 
+const BRANCH_LABEL_OPACITY = 0.2;
+
 export function ProjectGraphPage({
   projectKey,
   gitEnvironment,
@@ -415,14 +417,16 @@ function GraphLog({
   const [search, setSearch] = useState("");
   const [unsettledOnly, setUnsettledOnly] = useState(false);
   const [collapse, setCollapse] = useState(true);
+  const [compactLanes, setCompactLanes] = useState(false);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
   const layout = useMemo(
     () =>
       layoutProjectGraph(graph, threads, {
         collapse: collapse && !search.trim() && !unsettledOnly,
         expanded,
+        compactLanes,
       }),
-    [graph, threads, collapse, expanded, search, unsettledOnly],
+    [graph, threads, collapse, expanded, compactLanes, search, unsettledOnly],
   );
   const scroller = useRef<HTMLDivElement>(null);
   const selected = useMemo(() => {
@@ -522,6 +526,16 @@ function GraphLog({
           {graph.commits.length} commits · {graph.branches.length} branches
         </span>
         <Button
+          variant={compactLanes ? "secondary" : "ghost"}
+          size="sm"
+          className="h-7 shrink-0 text-[11px]"
+          aria-pressed={compactLanes}
+          title="Reuse columns for branch histories that do not overlap"
+          onClick={() => setCompactLanes((value) => !value)}
+        >
+          Compact lanes
+        </Button>
+        <Button
           variant="ghost"
           size="sm"
           className="h-7 shrink-0 text-[11px]"
@@ -619,7 +633,7 @@ function GraphLog({
                         d={`M ${BRANCH_LABEL_WIDTH + 8} ${from.y + ROW_HEIGHT / 2} H ${from.x}`}
                         stroke={color}
                         strokeWidth={1}
-                        opacity={0.5}
+                        opacity={BRANCH_LABEL_OPACITY}
                       />
                     )}
                     <path
@@ -630,7 +644,7 @@ function GraphLog({
                       strokeLinecap="round"
                       strokeLinejoin="round"
                       strokeDasharray={pending ? "3 4" : undefined}
-                      opacity={from.kind === "ref" ? 0.6 : 0.85}
+                      opacity={from.kind === "ref" ? (pending ? 0.6 : BRANCH_LABEL_OPACITY) : 0.85}
                     />
                   </g>
                 );
@@ -918,7 +932,7 @@ const GraphBranchLabel = memo(function GraphBranchLabel({
         top: node.y + 4,
         width: BRANCH_LABEL_WIDTH / labelCount - (labelCount > 1 ? 3 : 0),
         height: ROW_HEIGHT - 8,
-        backgroundColor: `color-mix(in srgb, ${node.color} 30%, var(--background))`,
+        backgroundColor: `color-mix(in srgb, ${node.color} ${BRANCH_LABEL_OPACITY * 100}%, var(--background))`,
         opacity: dimmed ? 0.3 : 1,
       }}
     >

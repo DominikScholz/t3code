@@ -492,6 +492,60 @@ describe("project graph", () => {
       "b",
     ]);
   });
+  it("reuses non-overlapping lane spans and their colors without changing rows or main's column", () => {
+    const history: VcsProjectGraph = {
+      ...graph,
+      worktrees: [],
+      branches: [
+        { name: "main", head: "tip", current: true, merged: true },
+        { name: "old", head: "old", current: false, merged: true },
+        { name: "new", head: "new", current: false, merged: true },
+      ],
+      commits: [
+        { id: "tip", parents: ["middle", "new"], subject: "New merge" },
+        { id: "new", parents: ["recent-base"], subject: "New branch" },
+        { id: "middle", parents: ["recent-base"], subject: "Main change" },
+        { id: "recent-base", parents: ["old-merge"], subject: "New fork" },
+        { id: "old-merge", parents: ["root", "old"], subject: "Old merge" },
+        { id: "old", parents: ["root"], subject: "Old branch" },
+        { id: "root", parents: [], subject: "Old fork" },
+      ],
+    };
+    const normal = layoutProjectGraph(history, []);
+    const compact = layoutProjectGraph(history, [], { compactLanes: true, collapse: true });
+    const lane = (name: string) => compact.lanes.find((entry) => entry.name === name)!;
+    expect(lane("old").x).toBe(lane("new").x);
+    expect(lane("main").x).toBe(normal.lanes[0]!.x);
+    expect(lane("old").x).toBeGreaterThan(lane("main").x);
+    expect(compact.width).toBeLessThan(normal.width);
+    expect(lane("old").color).toBe(lane("new").color);
+    expect(lane("main").color).toBe(normal.lanes[0]!.color);
+    for (const node of compact.nodes) {
+      if (node.stations[0]) expect(node.color).toBe(node.stations[0].color);
+    }
+    expect(compact.edges.find(({ from, to }) => from.id === "tip" && to.id === "new")?.color).toBe(
+      lane("new").color,
+    );
+    expect(compact.nodes.find((node) => node.id === "branch:new")?.color).toBe(lane("old").color);
+    expect(compact.rows.map(({ id }) => id)).toEqual(normal.rows.map(({ id }) => id));
+    expect(layoutProjectGraph(history, []).lanes).toEqual(normal.lanes);
+
+    // A second merge keeps the old track open past the newer branch. The dots
+    // alone do not overlap, but their connecting stems do, so reuse is unsafe.
+    const overlapping = layoutProjectGraph(
+      {
+        ...history,
+        commits: history.commits.map((commit) =>
+          commit.id === "tip" ? { ...commit, parents: ["middle", "old"] } : commit,
+        ),
+      },
+      [],
+      { compactLanes: true },
+    );
+    expect(overlapping.lanes.find((entry) => entry.name === "old")!.x).toBeLessThan(
+      overlapping.lanes.find((entry) => entry.name === "new")!.x,
+    );
+  });
   it("attaches clean branch labels to commits and gives only dirty worktrees separate tips", () => {
     const clean = layoutProjectGraph(graph, [thread()]);
     expect(clean.rows.filter((row) => row.ref && !row.thread)).toHaveLength(0);

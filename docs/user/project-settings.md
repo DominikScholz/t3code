@@ -85,6 +85,8 @@ thread titles and worktree paths. Refresh reads changes made by external Git too
 from a remote. Ordinary stretches of history are collapsed by default, keeping branch heads,
 forks and merges visible. Select **Show … commits** to expand a section, or **Expand all** for
 the full history. Searching also reveals collapsed commits.
+Enable **Compact lanes** to reuse columns for branch histories that do not overlap vertically.
+This narrows the graph while retaining all branches and keeping main on the left.
 
 **Merged** means the branch tip is reachable from the local default branch, or its remote-tracking
 ref if no local default branch exists. Squash and rebase merges may still appear unmerged.

@@ -46,7 +46,7 @@ const LINE_COLORS = [
 export function layoutProjectGraph(
   graph: VcsProjectGraph,
   threads: readonly EnvironmentThreadShell[],
-  options: { collapse?: boolean; expanded?: ReadonlySet<string> } = {},
+  options: { collapse?: boolean; expanded?: ReadonlySet<string>; compactLanes?: boolean } = {},
 ) {
   const nodes = new Map<string, GraphNode>();
   const ensure = (
@@ -401,6 +401,49 @@ export function layoutProjectGraph(
     if (row.ref && !row.thread) row.ref.y = row.y;
     for (const ref of row.refs ?? []) ref.y = row.y;
     if (!row.expanded) for (const commit of row.collapsed ?? []) commit.y = row.y;
+  }
+
+  if (options.compactLanes) {
+    const spans = new Map<GraphStation, { start: number; end: number }>();
+    const extend = (lane: GraphStation | undefined, y: number) => {
+      if (!lane) return;
+      const span = spans.get(lane);
+      spans.set(lane, {
+        start: Math.min(span?.start ?? y, y),
+        end: Math.max(span?.end ?? y, y),
+      });
+    };
+    for (const node of ordered) {
+      extend(node.stations[0], node.y);
+      for (const [index, parentId] of node.parents.entries()) {
+        const parent = nodes.get(parentId);
+        if (!parent) continue;
+        // First-parent tracks run down to the fork. Incoming merge tracks run
+        // up to the merge row, so their connecting stems also reserve space.
+        if (node.kind === "commit" && index > 0) extend(parent.stations[0], node.y);
+        else extend(node.stations[0], parent.y);
+      }
+    }
+    const occupied: { start: number; end: number; column: number }[] = [];
+    for (const lane of lanes) {
+      const span = spans.get(lane);
+      if (!span) continue;
+      let column = baseLane && lane !== baseLane ? 1 : 0;
+      if (lane !== baseLane) {
+        for (const previous of occupied) {
+          if (previous.start <= span.end && span.start <= previous.end)
+            column = Math.max(column, previous.column + 1);
+        }
+      }
+      // Earlier divergences remain to the left wherever histories overlap.
+      lane.x = GRAPH_LEFT + column * LANE_WIDTH;
+      lane.color = LINE_COLORS[column % LINE_COLORS.length]!;
+      occupied.push({ ...span, column });
+    }
+    for (const node of ordered) {
+      node.x = node.stations[0]?.x ?? GRAPH_LEFT;
+      node.color = node.stations[0]?.color ?? LINE_COLORS[0]!;
+    }
   }
 
   const edges = ordered.flatMap((node) =>
