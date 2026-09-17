@@ -606,7 +606,7 @@ function GraphLog({
         }}
       >
         <div
-          className="relative min-w-full"
+          className="relative mt-3 min-w-full"
           style={{ width: layout.width, height: Math.max(layout.height, size.height) }}
         >
           {visibleRows.map((row) => (
@@ -869,7 +869,7 @@ const GraphBranchLabel = memo(function GraphBranchLabel({
     <div
       role="group"
       aria-label={`Branch ${name}`}
-      className="absolute flex flex-col overflow-hidden rounded-sm bg-background text-foreground"
+      className="absolute flex flex-col overflow-hidden rounded-md bg-background text-foreground"
       style={{
         left: 8 + labelIndex * (BRANCH_LABEL_WIDTH / labelCount),
         top: node.y + 4,
