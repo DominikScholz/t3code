@@ -1,4 +1,4 @@
 interface:
   display_name: "Test T3 Mobile"
-  short_description: "Test mobile through T3's Device panel and AgentDevice"
-  default_prompt: "Use $test-t3-mobile to verify the affected mobile flow through T3's Device panel and its returned AgentDevice command, stopping if device access is unavailable."
+  short_description: "Launch T3 Code Dev in the Device panel"
+  default_prompt: "Use $test-t3-mobile to launch and pair T3 Code Dev through T3's Device panel."

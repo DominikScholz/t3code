@@ -1,69 +1,47 @@
 ---
 name: test-t3-app
-description: Run and test T3 Code in isolated development state. Use for web UI verification, mobile verification through T3's Device panel and AgentDevice, pairing recovery, and SQLite fixtures. Retain the environment across iterations.
+description: Test T3 Code through its built-in Browser and Device panels against isolated development state. Use for UI verification, pairing recovery, and test fixtures.
 ---
 
 # Test T3 Code
 
-For web, use the workflow below. For mobile, follow
-[`test-t3-mobile`](../test-t3-mobile/SKILL.md). Mobile verification requires T3's
-`device_*` tools and Device panel. If they are unavailable, report the setup
-blocker and stop device verification. Do not substitute XcodeBuildMCP, a Codex
-iOS plugin, standalone simulator streaming, or raw device automation.
+Use T3's built-in panels for verification. If the required T3 tools are absent
+or the panel reports unavailable, explain the blocker and stop verification.
+Do not install or switch to another automation system.
 
-## Start or reuse an isolated environment
+## Start the app
 
-Run from the repository root. Reuse the task's healthy dev server and state
-before starting another. Otherwise run `vp run dev`, which uses the worktree's
-ignored `.t3`. For disposable state, use `mktemp -d /tmp/t3code-test.XXXXXX` and
-pass that absolute path with `--home-dir <base-dir>`.
+Reuse this task's healthy dev server. Otherwise run `vp run dev` from the
+repository root and retain its terminal session. Use the worktree's ignored
+`.t3` state and read the actual ports and pairing URL from the dev-runner output.
+Never run against `~/.t3/userdata` or set `VITE_HTTP_URL` or `VITE_WS_URL`.
 
-Keep the terminal session and read the actual ports, base directory, and web
-origin from the `[dev-runner]` output. Ports can shift. Never start against or
-write to `~/.t3/userdata`, and never set `VITE_HTTP_URL` or `VITE_WS_URL` for dev.
-Vite proxies the backend through the web origin.
+Test with meaningful project and thread data. Read
+[references/sqlite-fixtures.md](references/sqlite-fixtures.md) only when
+inspecting or seeding SQLite. Stop the test server before direct fixture writes.
 
-Use meaningful project and thread data. Read
-[references/sqlite-fixtures.md](references/sqlite-fixtures.md) when inspecting
-or seeding SQLite. Use app commands for behavior tests; direct projection
-fixtures belong only in disposable state, with the server stopped before writes.
+## Use the T3 panels
 
-## Pair the browser
+For web, call `preview_status`, then `preview_open` if the Browser panel is
+closed. Navigate to the complete startup pairing URL once with
+`preview_navigate`, then use `preview_snapshot` and T3's interaction tools.
+If the token was consumed or expired, run `node apps/server/src/bin.ts pair`
+for a fresh one. Keep using the same tab.
 
-Use the available controlled browser. Do not pass `--browser` to the dev runner,
-since an automatically opened page can consume the startup token.
+For mobile, call `device_list`, then `device_open` with the selected host and
+device IDs. T3 boots the device and shows its live stream in the Device panel.
+Follow the returned `quickStart`, using the exact `agentDevice.command` and
+all `targetArgs` on every command. Use `device_screenshot` to inspect the screen.
+See [test-t3-mobile](../test-t3-mobile/SKILL.md) for launching and pairing T3 Code
+Dev. T3 owns device tooling and connections.
 
-Open the complete startup `/pair#token=...` URL once, preserving its fragment.
-Wait for pairing and the redirect, then keep using the same browser context.
-Keep credentials out of screenshots and committed files.
+## Verify and retain
 
-If the token expires or was consumed, run `node apps/server/src/bin.ts pair`.
-It discovers the worktree's running server. If you used `--home-dir`, pass the
-same absolute path as `--base-dir`. Replacement tokens have standard scopes;
-Connections management needs the admin-scoped startup URL.
+Exercise the affected flow and capture the state that proves it works. Keep
+the server, state, and panel available while the user inspects or iterates.
+An assistant turn ending is not teardown. Stop only processes you started,
+using retained terminal sessions or captured PIDs.
 
-## Share when requested
-
-Start with `vp run dev --share`. Give the user the complete printed pairing URL
-when they need to pair. Never consume the token you hand them. If you also need
-an authenticated browser, mint a separate token for it.
-
-Before handoff, verify the bare shared origin loads in the controlled browser
-when browser use is authorized. Curl alone cannot detect browser-blocked ports.
-Do not configure Tailscale serving separately.
-
-## Verify and retain the result
-
-Exercise the affected flow and capture evidence that shows the intended state.
-For mobile, keep the selected device visible in this thread's Device panel and
-drive it with the exact AgentDevice command returned by `device_open`.
-
-Retain the dev process, state, authenticated client, and fixtures while the user
-may inspect the result or request changes. An assistant turn ending is not
-teardown. On follow-up turns, reuse the recorded ports and base directory;
-restart with the same state if the process exited.
-
-When the testing loop is finished, stop only processes you started, using their
-retained terminal sessions or captured PIDs. Remove only disposable paths
-created for this task, and preserve useful reproduction state. Mention any
-environment left running with its non-secret web origin.
+When sharing is requested, start with `vp run dev --share` and give the user
+a fresh complete pairing URL that you have not consumed. Keep other credentials
+out of screenshots, commits, and replies.
