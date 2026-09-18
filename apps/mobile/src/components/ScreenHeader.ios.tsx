@@ -138,7 +138,9 @@ export function ScreenHeader(props: ScreenHeaderProps) {
           />
         </NativeHeaderToolbar>
       ) : null}
-      {(props.actions?.length || refresh || menu || props.trailing) && !compactSearch ? (
+      {(props.actions?.length || refresh || menu || props.trailing) &&
+      !compactSearch &&
+      props.options?.unstable_headerRightItems === undefined ? (
         <NativeHeaderToolbar placement="right">
           {props.actions?.map((action) => (
             <NativeHeaderToolbar.Button
