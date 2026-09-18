@@ -46,7 +46,11 @@ export function ScreenHeader(props: ScreenHeaderProps) {
   return (
     <>
       <NativeStackScreenOptions
-        optionsVersion={[props.optionsVersion, compactSearch ? menu : undefined]}
+        optionsVersion={[
+          props.optionsVersion,
+          compactSearch ? menu : undefined,
+          compactSearch ? refresh : undefined,
+        ]}
         options={{
           headerShown: true,
           title: props.title,
