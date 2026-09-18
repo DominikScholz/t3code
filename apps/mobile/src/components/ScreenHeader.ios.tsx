@@ -1,4 +1,5 @@
 import type { HeaderBarButtonMailSearchToolbarItem } from "react-native-screens";
+import { useId } from "react";
 import { NativeHeaderToolbar, NativeStackScreenOptions } from "../native/StackHeader";
 import { useAdaptiveWorkspaceLayout } from "../features/layout/AdaptiveWorkspaceLayout";
 import {
@@ -55,6 +56,7 @@ function mailMenuItems(items: ReadonlyArray<ScreenHeaderMenuItem>): MailMenu["it
 }
 
 export function ScreenHeader(props: ScreenHeaderProps) {
+  const headerId = useId();
   const { layout, panes, togglePrimarySidebar } = useAdaptiveWorkspaceLayout();
   const { themeVariables } = useAppearancePreferences();
   const { search, menu } = props;
@@ -66,7 +68,7 @@ export function ScreenHeader(props: ScreenHeaderProps) {
   return (
     <>
       <NativeStackScreenOptions
-        optionsVersion={props.optionsVersion}
+        optionsVersion={[props.optionsVersion, compactSearch ? menu : undefined]}
         options={{
           headerShown: true,
           title: props.title,
@@ -81,17 +83,17 @@ export function ScreenHeader(props: ScreenHeaderProps) {
                       createNativeMailSearchToolbarItem({
                         placeholder: search.compactPlaceholder ?? search.placeholder,
                         onSearchTextChange: search.onChangeText,
-                        searchTextChangeId: "header-search-text",
+                        searchTextChangeId: `${headerId}-search-text`,
                         ...(refresh
                           ? {
-                              composeButtonId: "header-refresh",
+                              composeButtonId: `${headerId}-refresh`,
                               composeSystemImageName: "arrow.clockwise",
                               onComposePress: refresh,
                             }
                           : undefined),
                         ...(menu
                           ? {
-                              filterButtonId: "header-filter",
+                              filterButtonId: `${headerId}-filter`,
                               filterSystemImageName: iosIcon(menu.icon),
                               filterMenu: { title: menu.title, items: mailMenuItems(menu.items) },
                             }

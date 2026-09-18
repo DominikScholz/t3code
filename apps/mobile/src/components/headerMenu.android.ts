@@ -4,7 +4,7 @@ import type { ScreenHeaderMenuItem } from "./ScreenHeader.types";
 export function androidHeaderMenuActions(items: ReadonlyArray<ScreenHeaderMenuItem>): MenuAction[] {
   return items.flatMap((item): MenuAction[] =>
     "items" in item
-      ? item.inline
+      ? item.inline && !item.title
         ? androidHeaderMenuActions(item.items)
         : [
             {

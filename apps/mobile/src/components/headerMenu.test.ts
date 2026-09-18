@@ -20,6 +20,19 @@ const items: ReadonlyArray<ScreenHeaderMenuItem> = [
 ];
 
 describe("header menus", () => {
+  it("keeps named sections as Android submenus", () => {
+    const actions = androidHeaderMenuActions([
+      {
+        id: "text-size",
+        title: "Text size",
+        inline: true,
+        items: [{ id: "font-increase", title: "A+", onPress: () => {} }],
+      },
+    ]);
+    expect(actions[0]?.title).toBe("Text size");
+    expect(actions[0]?.subactions?.[0]?.id).toBe("font-increase");
+  });
+
   it("flattens inline groups while keeping their action IDs", () => {
     const actions = androidHeaderMenuActions([
       { id: "modes", inline: true, items: [{ id: "code", title: "Code", onPress: () => {} }] },
