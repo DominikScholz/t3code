@@ -191,6 +191,21 @@ describe("handoff budget", () => {
     }
   });
 
+  it("fits the final envelope at intermediate selected/omitted digit boundaries", () => {
+    const candidates = Array.from({ length: 20 }, (_, index) =>
+      message(`boundary:${index}`, "user", "Short request"),
+    );
+    for (let budget = 4_000; budget <= 9_000; budget++) {
+      const selected = selectHistory({
+        messages: candidates,
+        coverage: "Recover history",
+        omittedItems: 90,
+        budget,
+      });
+      assert.isAtMost(historyCost(selected.messages, selected.context), budget);
+    }
+  });
+
   it("subtracts native usage, input, attachments, instructions and space for work", () => {
     const base = {
       tokenCap: 16_000,
@@ -320,6 +335,35 @@ describe("handoff delivery", () => {
         yield* next.delivered;
         assert.equal(durable.delivery?.status, "inline");
       }),
+  );
+
+  it.effect("bounds accumulated recovery markers while keeping omitted history discoverable", () =>
+    Effect.gen(function* () {
+      const many = Array.from({ length: 100 }, (_, index) => ({
+        ...handoff,
+        id: ContextHandoffId.make(`handoff:retry:${index}`),
+      }));
+      let captured: ProviderAdapterV2HistoricalContext | undefined;
+      const result = yield* deliverContextHandoffs({
+        handoffs: many,
+        providerThread,
+        budget: 2_500,
+        alreadyDeliveredItemIds: new Set(),
+        inject: (history) =>
+          Effect.sync(() => {
+            captured = history;
+            return true;
+          }),
+        persist: () => Effect.void,
+      });
+      assert.equal(result.context, "");
+      assert.isDefined(captured);
+      assert.include(captured.context, "detailed coverage references omitted");
+      assert.include(captured.context, "t3_thread_read");
+      assert.include(captured.context, threadId);
+      assert.isAtMost(historyCost(captured.messages, captured.context), 2_500);
+      assert.isAbove(captured.messages.length, 0);
+    }),
   );
 
   it.effect("does not redeliver after ambiguous injection failure", () =>

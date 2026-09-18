@@ -29,7 +29,7 @@ export const deliverContextHandoffs = Effect.fn("orchestrationV2.deliverContextH
     );
     if (pending.length === 0 || (input.deferInline && input.inject === undefined))
       return { context: "", delivered: Effect.void };
-    const coverage = pending
+    let coverage = pending
       .map(
         (handoff) =>
           `Context handoff (${handoff.strategy === "fork_delta_summary" ? "merge_back / fork_delta_summary" : handoff.strategy}):\n${
@@ -38,6 +38,13 @@ export const deliverContextHandoffs = Effect.fn("orchestrationV2.deliverContextH
           }`,
       )
       .join("\n");
+    // Repeated failures can accumulate many recovery markers. Keep a single
+    // thread-level entry point when detailed coverage would crowd out history;
+    // its activity includes the original handoff/fork source references.
+    if (historyCost([], coverage) > Math.min(4_000, input.budget / 2)) {
+      const strategies = Array.from(new Set(pending.map((handoff) => handoff.strategy)));
+      coverage = `Context handoff (${strategies.join(", ")}). ${pending.length} handoff records; detailed coverage references omitted. Recover history with t3_thread_read({threadId:"${input.providerThread.appThreadId ?? pending[0]!.threadId}",view:"activity",limit:20,maxCharsPerItem:4000}); paginate with afterPosition=nextPosition. Follow fork/handoff source references in activity. For long items use itemId and textOffset=nextTextOffset until null.`;
+    }
     const seen = new Set(input.alreadyDeliveredItemIds);
     const messages = pending
       .flatMap((handoff) => handoff.history?.messages ?? [])
@@ -53,7 +60,7 @@ export const deliverContextHandoffs = Effect.fn("orchestrationV2.deliverContextH
       .map((handoff) => handoff.summaryText)
       .join("\n\n");
     const fullCoverage =
-      oldContext && historyCost([], `${coverage}\n${oldContext}`) <= input.budget
+      oldContext && historyCost([], `${coverage}\n${oldContext}`) + 512 <= input.budget
         ? `${coverage}\n${oldContext}`
         : coverage;
     const selected = selectHistory({
