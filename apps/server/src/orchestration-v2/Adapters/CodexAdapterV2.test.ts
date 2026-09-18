@@ -1624,6 +1624,11 @@ describe("CodexAdapterV2 post-settle continuation", () => {
         }).pipe(Effect.result);
         if (response === "invalid") {
           assert.equal(injection._tag, "Failure");
+          if (injection._tag === "Failure") {
+            assert.equal(injection.failure._tag, "ProviderAdapterProtocolError");
+            assert.propertyVal(injection.failure.cause, "code", -32602);
+            assert.notProperty(injection.failure, "payload");
+          }
           assert.notInclude(requests, "turn/start");
           return;
         }

@@ -23,7 +23,7 @@ import { GitWorkflowService } from "../git/GitWorkflowService.ts";
 import { ProjectService } from "../project/ProjectService.ts";
 import { ProviderAuthService } from "../provider/Services/ProviderAuthService.ts";
 import { EventSinkV2 } from "./EventSink.ts";
-import { ContextHandoffServiceV2 } from "./ContextHandoffService.ts";
+import * as ContextHandoffService from "./ContextHandoffService.ts";
 import {
   DEFAULT_HANDOFF_TOKEN_CAP,
   handoffTokenCapConfig,
@@ -72,7 +72,7 @@ export const layer: Layer.Layer<
   ProviderTurnStartServiceV2,
   never,
   | EventSinkV2
-  | ContextHandoffServiceV2
+  | ContextHandoffService.ContextHandoffServiceV2
   | IdAllocatorV2
   | FileSystem.FileSystem
   | GitWorkflowService
@@ -86,7 +86,7 @@ export const layer: Layer.Layer<
   ProviderTurnStartServiceV2,
   Effect.gen(function* () {
     const eventSink = yield* EventSinkV2;
-    const contextHandoffService = yield* ContextHandoffServiceV2;
+    const contextHandoffService = yield* ContextHandoffService.ContextHandoffServiceV2;
     const idAllocator = yield* IdAllocatorV2;
     const fileSystem = yield* FileSystem.FileSystem;
     const gitWorkflow = yield* GitWorkflowService;

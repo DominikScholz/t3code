@@ -5089,9 +5089,10 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
                   // Older app servers reject unknown methods before mutating history.
                   // Transport errors and invalid payloads are ambiguous and must not
                   // fall through to a second delivery in the current user message.
-                  Effect.catchTag("CodexAppServerRequestError", (error) =>
-                    error.code === -32601 ? Effect.succeed(false) : Effect.fail(error),
-                  ),
+                  Effect.catchTags({
+                    CodexAppServerRequestError: (error) =>
+                      error.code === -32601 ? Effect.succeed(false) : Effect.fail(error),
+                  }),
                 );
             }).pipe(
               Effect.mapError(
@@ -5099,7 +5100,7 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
                   new ProviderAdapterProtocolError({
                     driver: CODEX_PROVIDER,
                     detail: "Failed to inject historical context",
-                    payload: cause,
+                    cause,
                   }),
               ),
             ),

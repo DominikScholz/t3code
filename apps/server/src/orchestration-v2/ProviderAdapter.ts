@@ -344,6 +344,7 @@ export class ProviderAdapterProtocolError extends Schema.TaggedError<ProviderAda
   {
     driver: ProviderDriverKind,
     detail: Schema.String,
+    cause: Schema.optional(Schema.Defect()),
     payload: Schema.optional(Schema.Unknown),
   },
 ) {
