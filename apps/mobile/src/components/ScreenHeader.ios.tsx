@@ -1,6 +1,7 @@
 import type { HeaderBarButtonMailSearchToolbarItem } from "react-native-screens";
 import { useId } from "react";
 import { createNativeHeaderMenu } from "./nativeHeaderMenu.ios";
+import { ScreenHeaderButton } from "./ScreenHeaderButton";
 import { NativeHeaderToolbar, NativeStackScreenOptions } from "../native/StackHeader";
 import { useAdaptiveWorkspaceLayout } from "../features/layout/AdaptiveWorkspaceLayout";
 import {
@@ -100,12 +101,12 @@ export function ScreenHeader(props: ScreenHeaderProps) {
       {props.sidebar !== false && layout.usesSplitView ? (
         <NativeHeaderToolbar placement="left">
           {props.backInSplitView && props.onBack ? (
-            <NativeHeaderToolbar.Button
+            <ScreenHeaderButton
               {...props.backInSplitView}
               onPress={props.backInSplitView.onPress ?? props.onBack}
             />
           ) : null}
-          <NativeHeaderToolbar.Button
+          <ScreenHeaderButton
             accessibilityLabel={
               panes.primarySidebarVisible ? `Maximize ${props.title.toLowerCase()}` : "Show threads"
             }
@@ -126,7 +127,7 @@ export function ScreenHeader(props: ScreenHeaderProps) {
       props.options?.unstable_headerRightItems === undefined ? (
         <NativeHeaderToolbar placement="right">
           {props.actions?.map((action) => (
-            <NativeHeaderToolbar.Button
+            <ScreenHeaderButton
               key={action.accessibilityLabel}
               {...action}
               icon={iosIcon(action.icon)}
@@ -134,7 +135,7 @@ export function ScreenHeader(props: ScreenHeaderProps) {
             />
           ))}
           {refresh && !compactSearch ? (
-            <NativeHeaderToolbar.Button
+            <ScreenHeaderButton
               accessibilityLabel={search?.refreshAccessibilityLabel}
               icon="arrow.clockwise"
               onPress={refresh}

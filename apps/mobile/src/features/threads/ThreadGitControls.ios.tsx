@@ -428,6 +428,7 @@ export function ThreadGitControls(props: ThreadGitControlsProps) {
       ) : null}
       {showActionControls ? (
         <NativeHeaderToolbar.Menu
+          accessibilityLabel="Open terminal"
           icon="terminal"
           disabled={!props.canOpenTerminal}
           separateBackground
@@ -491,7 +492,7 @@ export function ThreadGitControls(props: ThreadGitControlsProps) {
           separateBackground
         />
       ) : null}
-      {showActionControls ? <ThreadGitMenu {...props} /> : null}
+      {showActionControls ? createNativeHeaderMenu(threadGitMenuDefinition(props, model)) : null}
     </NativeHeaderToolbar>
   );
 }
@@ -508,7 +509,13 @@ export function ThreadGitMenu(props: ThreadGitMenuProps) {
 
 /** Returns menu data because native toolbars serialize direct items rather than rendering component children. */
 export function useThreadGitMenuDefinition(props: ThreadGitMenuProps): ScreenHeaderMenu | null {
-  const model = useThreadGitControlModel(props);
+  return threadGitMenuDefinition(props, useThreadGitControlModel(props));
+}
+
+function threadGitMenuDefinition(
+  props: ThreadGitMenuProps,
+  model: ReturnType<typeof useThreadGitControlModel>,
+): ScreenHeaderMenu {
   return {
     title: "Git controls",
     icon: "point.topleft.down.curvedto.point.bottomright.up",

@@ -4,7 +4,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { NativeStackScreenOptions } from "../native/StackHeader";
 import { AndroidWorkspaceSidebarButton } from "../features/layout/workspace-sidebar-toolbar";
 import { useAppearancePreferences } from "../features/settings/appearance/AppearancePreferencesProvider";
-import { AndroidHeaderIconButton, AndroidScreenHeader } from "./AndroidScreenHeader";
+import { AndroidScreenHeader } from "./AndroidScreenHeader";
+import { ScreenHeaderButton } from "./ScreenHeaderButton.android";
 import { SymbolView } from "./AppSymbol";
 import { ControlPillMenu } from "./ControlPill";
 import { MaterialSearchField } from "./MaterialSearchField";
@@ -57,7 +58,7 @@ export function ScreenHeader(props: ScreenHeaderProps) {
           />
         </Pressable>
       ) : (
-        <AndroidHeaderIconButton accessibilityLabel={menu.title} icon={menu.icon} />
+        <ScreenHeaderButton accessibilityLabel={menu.title} icon={menu.icon} />
       )}
     </ControlPillMenu>
   ));
@@ -177,7 +178,7 @@ export function ScreenHeader(props: ScreenHeaderProps) {
               style={{ paddingTop: Math.max(insets.top, 12) }}
             >
               <View className="min-h-14 flex-1 flex-row items-center gap-1">
-                <AndroidHeaderIconButton
+                <ScreenHeaderButton
                   accessibilityLabel={search.closeAccessibilityLabel ?? "Close search"}
                   icon="arrow.left"
                   onPress={closeSearch}
