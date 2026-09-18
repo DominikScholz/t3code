@@ -2,9 +2,9 @@ import type {
   ThreadGitControls as IosThreadGitControls,
   ThreadGitMenu as IosThreadGitMenu,
   useThreadGitRightHeaderItems as useIosThreadGitRightHeaderItems,
-} from "./ThreadGitControls.ios";
+} from "./ThreadGitControls";
 
-export type { ThreadGitMenuProps } from "./ThreadGitControls.ios";
+export type { ThreadGitMenuProps } from "./ThreadGitControls";
 
 type ThreadGitControlsProps = Parameters<typeof IosThreadGitControls>[0];
 const EMPTY_HEADER_ITEMS: ReturnType<typeof useIosThreadGitRightHeaderItems> = [];

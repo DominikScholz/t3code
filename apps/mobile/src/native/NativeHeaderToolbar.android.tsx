@@ -1,4 +1,4 @@
-import type { NativeHeaderToolbar as IosNativeHeaderToolbar } from "./NativeHeaderToolbar.ios";
+import type { NativeHeaderToolbar as IosNativeHeaderToolbar } from "./NativeHeaderToolbar";
 
 function NativeHeaderToolbarRoot(_props: Parameters<typeof IosNativeHeaderToolbar>[0]) {
   return null;
