@@ -67,6 +67,10 @@ function summarizeDynamicValue(value: unknown): unknown {
 
 export function projectTurnItemForWire(item: OrchestrationV2TurnItem): OrchestrationV2TurnItem {
   switch (item.type) {
+    case "handoff": {
+      const { summary: _summary, ...projected } = item;
+      return projected;
+    }
     case "command_execution": {
       const { output, ...projected } = item;
       // Clients used this preview to recognize provider-reported failures. Keep

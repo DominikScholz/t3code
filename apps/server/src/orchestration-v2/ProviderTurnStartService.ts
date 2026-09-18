@@ -131,8 +131,13 @@ export const layer: Layer.Layer<
                   (source.status === "failed" ||
                     source.status === "interrupted" ||
                     (source.status === "completed" &&
-                      handoff.history !== undefined &&
-                      handoff.delivery === undefined)),
+                      handoff.delivery === undefined &&
+                      projection.messages.some(
+                        (message) =>
+                          message.id === source.userMessageId &&
+                          message.attachments.length === 0 &&
+                          message.text.trim().toLowerCase() === "/compact",
+                      ))),
               ))),
       );
       const nativeForkTransfer = projection.contextTransfers.find(
@@ -501,7 +506,7 @@ export const layer: Layer.Layer<
           ),
           createdAt,
         });
-        effectiveHandoffs = [handoff];
+        effectiveHandoffs = [handoff, ...effectiveHandoffs];
         yield* eventSink.write({
           events: [
             {
@@ -696,6 +701,9 @@ export const layer: Layer.Layer<
           ? projection.turnItems.reduce((sum, item) => {
               if (
                 item.runId === run.id ||
+                (item.runId !== null &&
+                  missedRunIds.has(item.runId) &&
+                  !deliveredItemIds.has(item.id)) ||
                 (item.providerThreadId !== providerThread.id && !deliveredItemIds.has(item.id))
               )
                 return sum;

@@ -307,12 +307,13 @@ describe("handoff delivery", () => {
         });
         yield* compact.delivered;
         assert.equal(compact.context, "");
-        assert.isUndefined(durable.delivery);
+        assert.isUndefined((() => durable.delivery)());
         const next = yield* deliverContextHandoffs({
           handoffs: [durable],
           providerThread,
           budget: 16_000,
           alreadyDeliveredItemIds: new Set(),
+          inject: () => Effect.succeed(false),
           persist,
         });
         assert.include(next.context, messages[0]!.text);

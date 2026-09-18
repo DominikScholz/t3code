@@ -348,6 +348,7 @@ describe("orchestration v2 provider switching", () => {
   for (const scenario of [
     "compact-native",
     "compact-fallback",
+    "compact-legacy",
     "large-current-input",
     "delivery-write-failure",
   ] as const) {
@@ -460,7 +461,22 @@ describe("orchestration v2 provider switching", () => {
             const projection = yield* orchestrator.getThreadProjection(threadId);
             assert.equal(projection.runs.at(-1)?.status, "completed");
             const handoff = projection.contextHandoffs.at(-1)!;
-            if (scenario === "compact-fallback") {
+            if (scenario === "compact-fallback" || scenario === "compact-legacy") {
+              if (scenario === "compact-legacy") {
+                const { history: _history, ...legacyHandoff } = handoff;
+                yield* eventSink.write({
+                  events: [
+                    {
+                      id: EventId.make("legacy-handoff-shape"),
+                      type: "context-handoff.updated",
+                      threadId,
+                      runId: handoff.targetRunId,
+                      occurredAt: yield* DateTime.now,
+                      payload: legacyHandoff,
+                    },
+                  ],
+                });
+              }
               assert.isUndefined(handoff.delivery);
               yield* dispatch(3, "Continue after compact", CLAUDE_MODEL_SELECTION);
               yield* wait(3);
@@ -506,7 +522,7 @@ describe("orchestration v2 provider switching", () => {
       ),
     );
   }
-  for (const failure of ["turn-start", "injection"] as const) {
+  for (const failure of ["turn-start", "injection", "large-missed-request"] as const) {
     it.live(
       `recovers ${failure} failure without duplicating history in the same native thread`,
       () =>
@@ -535,7 +551,7 @@ describe("orchestration v2 provider switching", () => {
                 capturedTurns,
                 injectedHistory,
                 nativeThreadGeneration: generation,
-                ...(failure === "turn-start"
+                ...(failure !== "injection"
                   ? { failStartOnce: failOnce }
                   : { failInjectionOnce: failOnce }),
               }),
@@ -583,25 +599,32 @@ describe("orchestration v2 provider switching", () => {
               });
               yield* dispatch(1, "Original request with constraints", CODEX_MODEL_SELECTION);
               yield* wait(1, "completed");
-              yield* dispatch(2, "First target request", CLAUDE_MODEL_SELECTION);
+              yield* dispatch(
+                2,
+                failure === "large-missed-request" ? "x".repeat(7_000) : "First target request",
+                CLAUDE_MODEL_SELECTION,
+              );
               yield* wait(2, "failed");
               const failed = yield* orchestrator.getThreadProjection(threadId);
               const failedHandoff = failed.contextHandoffs.at(-1)!;
               assert.equal(
                 failedHandoff.delivery?.status,
-                failure === "turn-start" ? "injected" : "pending",
+                failure !== "injection" ? "injected" : "pending",
               );
               const historyBeforeRetry = (yield* Ref.get(injectedHistory)).length;
-              yield* dispatch(3, "Retry target request", CLAUDE_MODEL_SELECTION);
+              const retryText =
+                failure === "large-missed-request" ? "y".repeat(10_000) : "Retry target request";
+              yield* dispatch(3, retryText, CLAUDE_MODEL_SELECTION);
               yield* wait(3, "completed");
               const retried = yield* orchestrator.getThreadProjection(threadId);
               const lastTurn = (yield* Ref.get(capturedTurns)).at(-1)!;
-              assert.equal(lastTurn.text, "Retry target request");
-              if (failure === "turn-start") {
+              assert.equal(lastTurn.text, retryText);
+              if (failure !== "injection") {
                 const delta = yield* encodeJson(
                   (yield* Ref.get(injectedHistory)).slice(historyBeforeRetry),
                 );
-                assert.include(delta, "First target request");
+                if (failure === "large-missed-request") assert.include(delta, "omitted 1 items");
+                else assert.include(delta, "First target request");
                 assert.notInclude(delta, "Original request with constraints");
                 assert.notInclude(delta, "Original partial work");
                 assert.equal(yield* Ref.get(generation), 1);
@@ -2526,185 +2549,229 @@ describe("orchestration v2 provider switching", () => {
     ),
   );
 
-  it.live("switches providers while consuming a pending cross-provider merge-back", () =>
-    Effect.scoped(
-      Effect.gen(function* () {
-        const sourceThreadId = ThreadId.make("thread:cross-provider-merge:source");
-        const forkThreadId = ThreadId.make("thread:cross-provider-merge:fork");
-        const firstSourcePrompt = "Remember that the first source marker is amber.";
-        const secondSourcePrompt = "Remember that the second source marker is violet.";
-        const forkPrompt = "Remember that the fork marker is cobalt.";
-        const mergePrompt = "Report all three remembered markers.";
-        const cwd = yield* checkpointWorkspace("cross-provider-merge");
-        const capturedTurns = yield* Ref.make<ReadonlyArray<CapturedTurn>>([]);
-        const registryLayer = makeProviderAdapterRegistryLayer([
-          makeTestAdapter({
-            instanceId: ProviderInstanceId.make("codex"),
-            driver: CODEX_DRIVER,
-            capabilities: CodexProviderCapabilitiesV2,
-            modelSelection: CODEX_MODEL_SELECTION,
-            responseByRunOrdinal: {},
-            responseByThreadId: {
-              [sourceThreadId]: {
-                1: "I will remember amber.",
-                3: "The markers are amber, violet, and cobalt.",
-              },
-              [forkThreadId]: {
-                1: "I will remember cobalt.",
-              },
-            },
-            capturedTurns,
-          }),
-          makeTestAdapter({
-            instanceId: ProviderInstanceId.make("claudeAgent"),
-            driver: CLAUDE_DRIVER,
-            capabilities: ClaudeProviderCapabilitiesV2,
-            modelSelection: CLAUDE_MODEL_SELECTION,
-            responseByRunOrdinal: { 2: "I will remember violet." },
-            capturedTurns,
-          }),
-        ]);
-        const commands = [
-          {
-            type: "thread.create",
-            createdBy: "user",
-            creationSource: "web",
-            commandId: CommandId.make("command:cross-provider-merge:create"),
-            threadId: sourceThreadId,
-            projectId,
-            title: "Cross-provider merge source",
-            modelSelection: CODEX_MODEL_SELECTION,
-            runtimeMode: "full-access",
-            interactionMode: "default",
-            branch: null,
-            worktreePath: null,
-          },
-          {
-            type: "message.dispatch",
-            createdBy: "user",
-            creationSource: "web",
-            commandId: CommandId.make("command:cross-provider-merge:first-source"),
-            threadId: sourceThreadId,
-            messageId: MessageId.make("message:cross-provider-merge:first-source"),
-            text: firstSourcePrompt,
-            attachments: [],
-            modelSelection: CODEX_MODEL_SELECTION,
-            dispatchMode: { type: "start_immediately" },
-          },
-          {
-            type: "message.dispatch",
-            createdBy: "user",
-            creationSource: "web",
-            commandId: CommandId.make("command:cross-provider-merge:second-source"),
-            threadId: sourceThreadId,
-            messageId: MessageId.make("message:cross-provider-merge:second-source"),
-            text: secondSourcePrompt,
-            attachments: [],
-            modelSelection: CLAUDE_MODEL_SELECTION,
-            dispatchMode: { type: "start_immediately" },
-          },
-          {
-            type: "thread.fork",
-            createdBy: "user",
-            creationSource: "web",
-            commandId: CommandId.make("command:cross-provider-merge:fork"),
-            sourceThreadId,
-            targetThreadId: forkThreadId,
-            sourcePoint: { type: "latest_stable" },
-            title: "Cross-provider merge fork",
-          },
-          {
-            type: "message.dispatch",
-            createdBy: "user",
-            creationSource: "web",
-            commandId: CommandId.make("command:cross-provider-merge:fork-turn"),
-            threadId: forkThreadId,
-            messageId: MessageId.make("message:cross-provider-merge:fork-turn"),
-            text: forkPrompt,
-            attachments: [],
-            modelSelection: CODEX_MODEL_SELECTION,
-            dispatchMode: { type: "start_immediately" },
-          },
-          {
-            type: "thread.merge_back",
-            createdBy: "user",
-            creationSource: "web",
-            commandId: CommandId.make("command:cross-provider-merge:merge"),
-            sourceThreadId: forkThreadId,
-            targetThreadId: sourceThreadId,
-            sourcePoint: { type: "latest_stable" },
-          },
-          {
-            type: "message.dispatch",
-            createdBy: "user",
-            creationSource: "web",
-            commandId: CommandId.make("command:cross-provider-merge:consume"),
-            threadId: sourceThreadId,
-            messageId: MessageId.make("message:cross-provider-merge:consume"),
-            text: mergePrompt,
-            attachments: [],
-            modelSelection: CODEX_MODEL_SELECTION,
-            dispatchMode: { type: "start_immediately" },
-          },
-        ] satisfies ReadonlyArray<OrchestrationV2Command>;
-
-        const projection = yield* Effect.gen(function* () {
-          const orchestrator = yield* OrchestratorV2;
-          yield* orchestrator.dispatch(commands[0]!);
-          yield* orchestrator.dispatch(commands[1]!);
-          yield* waitForIdle(sourceThreadId);
-          yield* orchestrator.dispatch(commands[2]!);
-          yield* waitForIdle(sourceThreadId);
-          yield* orchestrator.dispatch(commands[3]!);
-          yield* orchestrator.dispatch(commands[4]!);
-          yield* waitForIdle(forkThreadId);
-          yield* orchestrator.dispatch(commands[5]!);
-          yield* orchestrator.dispatch(commands[6]!);
-          return yield* waitForIdle(sourceThreadId);
-        }).pipe(
-          Effect.provide(
-            makeOrchestratorV2ReplayLayerWithRegistry(
-              {
-                name: "cross-provider-merge",
-                runtimePolicyOverride: {
-                  cwd,
-                  approvalPolicy: "never",
-                  sandboxPolicy: {
-                    type: "readOnly",
-                    access: { type: "fullAccess" },
-                    networkAccess: false,
+  for (const failResume of [false, true]) {
+    it.live(
+      `switches providers while consuming a pending cross-provider merge-back (resume failure: ${failResume})`,
+      () =>
+        Effect.scoped(
+          Effect.gen(function* () {
+            const sourceThreadId = ThreadId.make("thread:cross-provider-merge:source");
+            const forkThreadId = ThreadId.make("thread:cross-provider-merge:fork");
+            const firstSourcePrompt = "Remember that the first source marker is amber.";
+            const secondSourcePrompt = "Remember that the second source marker is violet.";
+            const forkPrompt = "Remember that the fork marker is cobalt.";
+            const mergePrompt = "Report all three remembered markers.";
+            const cwd = yield* checkpointWorkspace("cross-provider-merge");
+            const capturedTurns = yield* Ref.make<ReadonlyArray<CapturedTurn>>([]);
+            const registryLayer = makeProviderAdapterRegistryLayer([
+              makeTestAdapter({
+                instanceId: ProviderInstanceId.make("codex"),
+                driver: CODEX_DRIVER,
+                capabilities: CodexProviderCapabilitiesV2,
+                modelSelection: CODEX_MODEL_SELECTION,
+                responseByRunOrdinal: {},
+                responseByThreadId: {
+                  [sourceThreadId]: {
+                    1: "I will remember amber.",
+                    3: "The markers are amber, violet, and cobalt.",
+                  },
+                  [forkThreadId]: {
+                    1: "I will remember cobalt.",
                   },
                 },
+                capturedTurns,
+                failResume,
+              }),
+              makeTestAdapter({
+                instanceId: ProviderInstanceId.make("claudeAgent"),
+                driver: CLAUDE_DRIVER,
+                capabilities: ClaudeProviderCapabilitiesV2,
+                modelSelection: CLAUDE_MODEL_SELECTION,
+                responseByRunOrdinal: { 2: "I will remember violet." },
+                capturedTurns,
+              }),
+            ]);
+            const commands = [
+              {
+                type: "thread.create",
+                createdBy: "user",
+                creationSource: "web",
+                commandId: CommandId.make("command:cross-provider-merge:create"),
+                threadId: sourceThreadId,
+                projectId,
+                title: "Cross-provider merge source",
+                modelSelection: CODEX_MODEL_SELECTION,
+                runtimeMode: "full-access",
+                interactionMode: "default",
+                branch: null,
+                worktreePath: null,
               },
-              registryLayer,
-            ),
-          ),
-        );
-        const turns = yield* Ref.get(capturedTurns);
-        const mergedTurn = turns.findLast(
-          (turn) => turn.threadId === sourceThreadId && turn.driver === "codex",
-        );
-        const mergeTransfer = projection.contextTransfers.find(
-          (transfer) => transfer.type === "merge_back",
-        );
+              {
+                type: "message.dispatch",
+                createdBy: "user",
+                creationSource: "web",
+                commandId: CommandId.make("command:cross-provider-merge:first-source"),
+                threadId: sourceThreadId,
+                messageId: MessageId.make("message:cross-provider-merge:first-source"),
+                text: firstSourcePrompt,
+                attachments: [],
+                modelSelection: CODEX_MODEL_SELECTION,
+                dispatchMode: { type: "start_immediately" },
+              },
+              {
+                type: "message.dispatch",
+                createdBy: "user",
+                creationSource: "web",
+                commandId: CommandId.make("command:cross-provider-merge:second-source"),
+                threadId: sourceThreadId,
+                messageId: MessageId.make("message:cross-provider-merge:second-source"),
+                text: secondSourcePrompt,
+                attachments: [],
+                modelSelection: CLAUDE_MODEL_SELECTION,
+                dispatchMode: { type: "start_immediately" },
+              },
+              {
+                type: "thread.fork",
+                createdBy: "user",
+                creationSource: "web",
+                commandId: CommandId.make("command:cross-provider-merge:fork"),
+                sourceThreadId,
+                targetThreadId: forkThreadId,
+                sourcePoint: { type: "latest_stable" },
+                title: "Cross-provider merge fork",
+              },
+              {
+                type: "message.dispatch",
+                createdBy: "user",
+                creationSource: "web",
+                commandId: CommandId.make("command:cross-provider-merge:fork-turn"),
+                threadId: forkThreadId,
+                messageId: MessageId.make("message:cross-provider-merge:fork-turn"),
+                text: forkPrompt,
+                attachments: [],
+                modelSelection: CODEX_MODEL_SELECTION,
+                dispatchMode: { type: "start_immediately" },
+              },
+              {
+                type: "thread.merge_back",
+                createdBy: "user",
+                creationSource: "web",
+                commandId: CommandId.make("command:cross-provider-merge:merge"),
+                sourceThreadId: forkThreadId,
+                targetThreadId: sourceThreadId,
+                sourcePoint: { type: "latest_stable" },
+              },
+              {
+                type: "message.dispatch",
+                createdBy: "user",
+                creationSource: "web",
+                commandId: CommandId.make("command:cross-provider-merge:consume"),
+                threadId: sourceThreadId,
+                messageId: MessageId.make("message:cross-provider-merge:consume"),
+                text: mergePrompt,
+                attachments: [],
+                modelSelection: CODEX_MODEL_SELECTION,
+                dispatchMode: { type: "start_immediately" },
+              },
+            ] satisfies ReadonlyArray<OrchestrationV2Command>;
 
-        assert.isDefined(mergedTurn);
-        assert.include(mergedTurn.text, "Context handoff (full_thread_summary):");
-        assert.include(mergedTurn.text, firstSourcePrompt);
-        assert.include(mergedTurn.text, "I will remember amber.");
-        assert.include(mergedTurn.text, secondSourcePrompt);
-        assert.include(mergedTurn.text, "I will remember violet.");
-        assert.include(mergedTurn.text, "Context handoff (merge_back / fork_delta_summary):");
-        assert.include(mergedTurn.text, forkPrompt);
-        assert.include(mergedTurn.text, "I will remember cobalt.");
-        assert.include(mergedTurn.text, mergePrompt);
-        assert.isDefined(mergeTransfer);
-        assert.equal(mergeTransfer.status, "consumed");
-        assert.equal(mergeTransfer.targetProviderInstanceId, "codex");
-        assert.equal(mergeTransfer.resolution?.strategy, "fork_delta_context");
-      }),
-    ),
-  );
+            const projection = yield* Effect.gen(function* () {
+              const orchestrator = yield* OrchestratorV2;
+              yield* orchestrator.dispatch(commands[0]!);
+              yield* orchestrator.dispatch(commands[1]!);
+              yield* waitForIdle(sourceThreadId);
+              yield* orchestrator.dispatch(commands[2]!);
+              yield* waitForIdle(sourceThreadId);
+              yield* orchestrator.dispatch(commands[3]!);
+              yield* orchestrator.dispatch(commands[4]!);
+              yield* waitForIdle(forkThreadId);
+              yield* orchestrator.dispatch(commands[5]!);
+              if (failResume) {
+                // A persisted native ref that is not loaded in this process must
+                // exercise resume rather than the session manager's warm cache.
+                const beforeResume = yield* orchestrator.getThreadProjection(sourceThreadId);
+                const codexThread = beforeResume.providerThreads.find(
+                  (thread) => thread.id === beforeResume.runs[0]?.providerThreadId,
+                )!;
+                yield* (yield* EventSinkV2).write({
+                  events: [
+                    {
+                      id: EventId.make("unloaded-merge-target"),
+                      type: "provider-thread.updated",
+                      threadId: sourceThreadId,
+                      occurredAt: yield* DateTime.now,
+                      payload: {
+                        ...codexThread,
+                        nativeThreadRef: {
+                          ...codexThread.nativeThreadRef!,
+                          nativeId: "unloaded-native-merge-target",
+                        },
+                      },
+                    },
+                  ],
+                });
+              }
+              yield* orchestrator.dispatch(commands[6]!);
+              return yield* waitForIdle(sourceThreadId);
+            }).pipe(
+              Effect.provide(
+                makeOrchestratorV2ReplayLayerWithRegistry(
+                  {
+                    name: "cross-provider-merge",
+                    runtimePolicyOverride: {
+                      cwd,
+                      approvalPolicy: "never",
+                      sandboxPolicy: {
+                        type: "readOnly",
+                        access: { type: "fullAccess" },
+                        networkAccess: false,
+                      },
+                    },
+                  },
+                  registryLayer,
+                ),
+              ),
+            );
+            const turns = yield* Ref.get(capturedTurns);
+            const mergedTurn = turns.findLast(
+              (turn) => turn.threadId === sourceThreadId && turn.driver === "codex",
+            );
+            const mergeTransfer = projection.contextTransfers.find(
+              (transfer) => transfer.type === "merge_back",
+            );
+
+            if (failResume)
+              assert.isAtLeast(
+                projection.contextHandoffs.filter(
+                  (handoff) => handoff.targetRunId === projection.runs.at(-1)?.id,
+                ).length,
+                2,
+              );
+            assert.isDefined(mergedTurn);
+            if (failResume)
+              assert.notEqual(
+                projection.providerThreads.find(
+                  (thread) => thread.id === mergedTurn.providerThreadId,
+                )?.nativeThreadRef?.nativeId,
+                "unloaded-native-merge-target",
+              );
+            assert.include(mergedTurn.text, "Context handoff (full_thread_summary):");
+            assert.include(mergedTurn.text, firstSourcePrompt);
+            assert.include(mergedTurn.text, "I will remember amber.");
+            assert.include(mergedTurn.text, secondSourcePrompt);
+            assert.include(mergedTurn.text, "I will remember violet.");
+            assert.include(mergedTurn.text, "Context handoff (merge_back / fork_delta_summary):");
+            assert.include(mergedTurn.text, forkPrompt);
+            assert.include(mergedTurn.text, "I will remember cobalt.");
+            assert.include(mergedTurn.text, mergePrompt);
+            assert.isDefined(mergeTransfer);
+            assert.equal(mergeTransfer.status, "consumed");
+            assert.equal(mergeTransfer.targetProviderInstanceId, "codex");
+            assert.equal(mergeTransfer.resolution?.strategy, "fork_delta_context");
+          }),
+        ),
+    );
+  }
 
   it.live("routes two custom instances of the same driver independently", () =>
     Effect.scoped(
