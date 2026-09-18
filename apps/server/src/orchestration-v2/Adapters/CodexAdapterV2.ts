@@ -1,3 +1,4 @@
+import { historyResponseItems } from "../ContextHandoffBudget.ts";
 import { makeProviderTextDeltaCoalescer } from "./ProviderTextDeltaCoalescer.ts";
 import {
   mcpToolPresentation,
@@ -5072,6 +5073,33 @@ export function makeCodexAdapterV2(adapterOptions: CodexAdapterV2Options): Provi
                     providerThreadId: turnInput.providerThread.id,
                     runId: turnInput.runId,
                     cause,
+                  }),
+              ),
+            ),
+          injectHistory: (input) =>
+            Effect.gen(function* () {
+              const threadId = yield* getNativeThreadId(input.providerThread);
+              return yield* client
+                .request("thread/inject_items", {
+                  threadId,
+                  items: historyResponseItems(input.messages, input.context),
+                })
+                .pipe(
+                  Effect.as(true),
+                  // Older app servers reject unknown methods before mutating history.
+                  // Transport errors and invalid payloads are ambiguous and must not
+                  // fall through to a second delivery in the current user message.
+                  Effect.catchTag("CodexAppServerRequestError", (error) =>
+                    error.code === -32601 ? Effect.succeed(false) : Effect.fail(error),
+                  ),
+                );
+            }).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProviderAdapterProtocolError({
+                    driver: CODEX_PROVIDER,
+                    detail: "Failed to inject historical context",
+                    payload: cause,
                   }),
               ),
             ),

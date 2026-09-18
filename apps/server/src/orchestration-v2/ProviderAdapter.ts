@@ -1,3 +1,4 @@
+import type { OrchestrationV2HistoricalMessage } from "@t3tools/contracts";
 import {
   ChatAttachment,
   CheckpointId,
@@ -473,6 +474,11 @@ export interface ProviderAdapterV2EventSubscription {
   readonly close: Effect.Effect<void>;
 }
 
+export interface ProviderAdapterV2HistoricalContext {
+  readonly messages: ReadonlyArray<OrchestrationV2HistoricalMessage>;
+  readonly context: string;
+}
+
 export interface ProviderAdapterV2SessionRuntime {
   readonly instanceId: ProviderInstanceId;
   readonly driver: ProviderDriverKind;
@@ -509,6 +515,12 @@ export interface ProviderAdapterV2SessionRuntime {
     readonly modelSelection?: ModelSelection;
     readonly runtimePolicy?: ProviderAdapterV2RuntimePolicy;
   }) => Effect.Effect<OrchestrationV2ProviderThread, ProviderAdapterV2Error>;
+  /** False means the native protocol explicitly does not support history injection. */
+  readonly injectHistory?: (
+    input: ProviderAdapterV2HistoricalContext & {
+      readonly providerThread: OrchestrationV2ProviderThread;
+    },
+  ) => Effect.Effect<boolean, ProviderAdapterV2Error>;
   readonly startTurn: (
     input: ProviderAdapterV2TurnInput,
   ) => Effect.Effect<void, ProviderAdapterV2Error>;
