@@ -64,6 +64,7 @@ export interface ScreenHeaderProps {
     readonly accessibilityLabel: string;
     readonly icon: string;
     readonly separateBackground?: boolean;
+    readonly onPress?: () => void;
   };
   readonly hideBottomBorder?: boolean;
   readonly trailing?: ReactNode;

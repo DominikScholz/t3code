@@ -121,7 +121,10 @@ export function ScreenHeader(props: ScreenHeaderProps) {
       {props.sidebar !== false && layout.usesSplitView ? (
         <NativeHeaderToolbar placement="left">
           {props.backInSplitView && props.onBack ? (
-            <NativeHeaderToolbar.Button {...props.backInSplitView} onPress={props.onBack} />
+            <NativeHeaderToolbar.Button
+              {...props.backInSplitView}
+              onPress={props.backInSplitView.onPress ?? props.onBack}
+            />
           ) : null}
           <NativeHeaderToolbar.Button
             accessibilityLabel={
