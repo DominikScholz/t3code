@@ -1,4 +1,4 @@
 interface:
   display_name: "T3 App Testing"
   short_description: "Launch and retain isolated T3 test environments"
-  default_prompt: "Use $test-t3-app to launch an isolated T3 environment and iteratively test it in the browser while preserving state."
+  default_prompt: "Use $test-t3-app to verify T3 Code in isolated state, using the browser for web or T3's Device panel and AgentDevice for mobile."
