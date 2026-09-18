@@ -12,7 +12,7 @@ import { androidHeaderMenuActions, findHeaderMenuAction } from "./headerMenu.and
 import type { ScreenHeaderProps } from "./ScreenHeader.types";
 
 export function ScreenHeader(props: ScreenHeaderProps) {
-  const { search, menu } = props;
+  const { search } = props;
   const insets = useSafeAreaInsets();
   const { themeVariables } = useAppearancePreferences();
   const inputRef = useRef<TextInput>(null);
@@ -32,8 +32,9 @@ export function ScreenHeader(props: ScreenHeaderProps) {
     });
     return () => subscription.remove();
   }, [closeSearch, searching, search?.mode]);
-  const menuView = menu ? (
+  const menuView = props.menus?.map((menu) => (
     <ControlPillMenu
+      key={menu.title}
       actions={androidHeaderMenuActions(menu.items)}
       isAnchoredToRight
       title={menu.status ?? menu.title}
@@ -59,7 +60,7 @@ export function ScreenHeader(props: ScreenHeaderProps) {
         <AndroidHeaderIconButton accessibilityLabel={menu.title} icon={menu.icon} />
       )}
     </ControlPillMenu>
-  ) : null;
+  ));
   const options = (
     <NativeStackScreenOptions
       options={{

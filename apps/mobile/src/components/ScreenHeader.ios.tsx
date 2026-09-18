@@ -1,5 +1,6 @@
 import type { HeaderBarButtonMailSearchToolbarItem } from "react-native-screens";
 import { useId } from "react";
+import { createNativeHeaderMenu } from "./nativeHeaderMenu.ios";
 import { NativeHeaderToolbar, NativeStackScreenOptions } from "../native/StackHeader";
 import { useAdaptiveWorkspaceLayout } from "../features/layout/AdaptiveWorkspaceLayout";
 import {
@@ -12,32 +13,6 @@ import type { AppSymbolName } from "./AppSymbol";
 
 function iosIcon(icon: AppSymbolName) {
   return typeof icon === "string" ? icon : icon.ios;
-}
-
-function renderMenuItems(items: ReadonlyArray<ScreenHeaderMenuItem>) {
-  return items.map((item) =>
-    "items" in item ? (
-      <NativeHeaderToolbar.Menu
-        key={item.id}
-        title={item.title}
-        icon={item.icon}
-        inline={item.inline}
-      >
-        {renderMenuItems(item.items)}
-      </NativeHeaderToolbar.Menu>
-    ) : (
-      <NativeHeaderToolbar.MenuAction
-        key={item.id}
-        icon={item.icon}
-        subtitle={item.subtitle}
-        disabled={item.disabled}
-        isOn={item.selected}
-        onPress={item.onPress}
-      >
-        {item.title}
-      </NativeHeaderToolbar.MenuAction>
-    ),
-  );
 }
 
 type MailMenu = NonNullable<HeaderBarButtonMailSearchToolbarItem["filterMenu"]>;
@@ -59,11 +34,13 @@ export function ScreenHeader(props: ScreenHeaderProps) {
   const headerId = useId();
   const { layout, panes, togglePrimarySidebar } = useAdaptiveWorkspaceLayout();
   const { themeVariables } = useAppearancePreferences();
-  const { search, menu } = props;
+  const { search, menus } = props;
+  const menu = menus?.[0];
   const compactSearch =
     search !== undefined &&
     (search.compactToolbar ?? !layout.usesSplitView) &&
     NATIVE_MAIL_SEARCH_TOOLBAR_SUPPORTED;
+  const visibleMenus = compactSearch ? (menus?.slice(1) ?? []) : (menus ?? []);
   const refresh = search?.refreshInToolbar ? search.onRefresh : undefined;
   return (
     <>
@@ -136,12 +113,16 @@ export function ScreenHeader(props: ScreenHeaderProps) {
               panes.primarySidebarVisible ? "arrow.up.left.and.arrow.down.right" : "sidebar.left"
             }
             onPress={togglePrimarySidebar}
-            separateBackground
+            separateBackground={
+              props.backInSplitView ? props.backInSplitView.separateBackground : true
+            }
           />
         </NativeHeaderToolbar>
       ) : null}
-      {(props.actions?.length || refresh || menu || props.trailing) &&
-      !compactSearch &&
+      {(props.actions?.length ||
+        (!compactSearch && refresh) ||
+        visibleMenus.length ||
+        props.trailing) &&
       props.options?.unstable_headerRightItems === undefined ? (
         <NativeHeaderToolbar placement="right">
           {props.actions?.map((action) => (
@@ -152,7 +133,7 @@ export function ScreenHeader(props: ScreenHeaderProps) {
               separateBackground
             />
           ))}
-          {refresh ? (
+          {refresh && !compactSearch ? (
             <NativeHeaderToolbar.Button
               accessibilityLabel={search?.refreshAccessibilityLabel}
               icon="arrow.clockwise"
@@ -160,19 +141,7 @@ export function ScreenHeader(props: ScreenHeaderProps) {
               separateBackground
             />
           ) : null}
-          {menu ? (
-            <NativeHeaderToolbar.Menu
-              title={menu.title}
-              accessibilityLabel={menu.title}
-              icon={iosIcon(menu.icon)}
-              separateBackground={menu.separateBackground ?? true}
-            >
-              {menu.status ? (
-                <NativeHeaderToolbar.Label>{menu.status}</NativeHeaderToolbar.Label>
-              ) : null}
-              {renderMenuItems(menu.items)}
-            </NativeHeaderToolbar.Menu>
-          ) : null}
+          {visibleMenus.map(createNativeHeaderMenu)}
           {props.trailing}
         </NativeHeaderToolbar>
       ) : null}

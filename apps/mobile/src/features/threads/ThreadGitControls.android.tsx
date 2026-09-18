@@ -24,3 +24,7 @@ export function ThreadGitControls(_props: ThreadGitControlsProps) {
 export function ThreadGitMenu(_props: Parameters<typeof IosThreadGitMenu>[0]) {
   return null;
 }
+
+export function useThreadGitMenuDefinition(_props: Parameters<typeof IosThreadGitMenu>[0]) {
+  return null;
+}

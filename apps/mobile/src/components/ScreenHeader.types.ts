@@ -56,7 +56,7 @@ export interface ScreenHeaderProps {
   readonly title: string;
   readonly subtitle?: string;
   readonly actions?: ReadonlyArray<ScreenHeaderAction>;
-  readonly menu?: ScreenHeaderMenu;
+  readonly menus?: ReadonlyArray<ScreenHeaderMenu>;
   readonly search?: ScreenHeaderSearch;
   readonly onBack?: () => void;
   readonly sidebar?: boolean;
