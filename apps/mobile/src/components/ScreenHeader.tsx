@@ -104,7 +104,7 @@ export function ScreenHeader(props: ScreenHeaderProps) {
       />
       {props.sidebar !== false && layout.usesSplitView ? (
         <NativeHeaderToolbar placement="left">
-          {props.backInSplitView && props.onBack ? (
+          {props.backInSplitView && (props.backInSplitView.onPress || props.onBack) ? (
             <ScreenHeaderButton
               {...props.backInSplitView}
               onPress={props.backInSplitView.onPress ?? props.onBack}
