@@ -212,7 +212,7 @@ export function providerMessageWithContextHandoff(input: {
   });
 }
 
-export function providerMessageWithContextHandoffs(input: {
+function providerMessageWithContextHandoffs(input: {
   readonly handoffs: ReadonlyArray<OrchestrationV2ContextHandoff>;
   readonly userText: string;
 }): string {

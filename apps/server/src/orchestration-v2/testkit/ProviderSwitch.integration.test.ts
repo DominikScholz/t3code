@@ -1,3 +1,4 @@
+import { vi } from "vite-plus/test";
 import { historyResponseItems } from "../ContextHandoffBudget.ts";
 import { assert, describe, it } from "@effect/vitest";
 import {
@@ -36,7 +37,7 @@ import { CodexProviderCapabilitiesV2 } from "../Adapters/CodexAdapterV2.ts";
 import { AcpProviderCapabilitiesV2 } from "../Adapters/AcpAdapterV2.ts";
 import { CursorProviderCapabilitiesV2 } from "../Adapters/CursorAdapterV2.ts";
 import { layer as eventSinkLayer } from "../EventSink.ts";
-import { EventSinkV2 } from "../EventSink.ts";
+import { EventSinkV2, EventSinkWriteError } from "../EventSink.ts";
 import { layer as eventStoreLayer } from "../EventStore.ts";
 import {
   LegacyV1ThreadImporter,
@@ -55,6 +56,7 @@ import {
   type ProviderAdapterV2HistoricalContext,
   ProviderAdapterProtocolError,
   type ProviderAdapterV2Shape,
+  type ProviderAdapterV2SessionRuntime,
 } from "../ProviderAdapter.ts";
 import { makeLayer as makeProviderAdapterRegistryLayer } from "../ProviderAdapterRegistry.ts";
 import {
@@ -135,7 +137,7 @@ function makeTestAdapter(input: {
           lastError: null,
         };
 
-        return {
+        const runtime: ProviderAdapterV2SessionRuntime = {
           instanceId: input.instanceId,
           driver: input.driver,
           providerSessionId: sessionInput.providerSessionId,
@@ -198,6 +200,7 @@ function makeTestAdapter(input: {
                     ),
                   ),
               }),
+          compactThread: (turnInput) => runtime.startTurn(turnInput),
           startTurn: (turnInput) =>
             Effect.gen(function* () {
               if (
@@ -318,6 +321,7 @@ function makeTestAdapter(input: {
           forkThread: () =>
             unimplemented(input.driver, "forkThread unused in provider switch test"),
         };
+        return runtime;
       }),
   };
 }
@@ -341,6 +345,167 @@ const waitForIdle = Effect.fn("ProviderSwitchTest.waitForIdle")(function* (
 });
 
 describe("orchestration v2 provider switching", () => {
+  for (const scenario of [
+    "compact-native",
+    "compact-fallback",
+    "large-current-input",
+    "delivery-write-failure",
+  ] as const) {
+    it.live(`preserves handoffs through ${scenario}`, () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const cwd = yield* checkpointWorkspace(`handoff-${scenario}`);
+          const capturedTurns = yield* Ref.make<ReadonlyArray<CapturedTurn>>([]);
+          const injectedHistory = yield* Ref.make<ReadonlyArray<unknown>>([]);
+          const registry = makeProviderAdapterRegistryLayer([
+            makeTestAdapter({
+              instanceId: CODEX_MODEL_SELECTION.instanceId,
+              driver: CODEX_DRIVER,
+              capabilities: CodexProviderCapabilitiesV2,
+              modelSelection: CODEX_MODEL_SELECTION,
+              responseByRunOrdinal: { 1: "Original partial work" },
+              capturedTurns,
+            }),
+            makeTestAdapter({
+              instanceId: CLAUDE_MODEL_SELECTION.instanceId,
+              driver: CLAUDE_DRIVER,
+              capabilities: ClaudeProviderCapabilitiesV2,
+              modelSelection: CLAUDE_MODEL_SELECTION,
+              responseByRunOrdinal: {},
+              capturedTurns,
+              ...(scenario === "compact-native" || scenario === "large-current-input"
+                ? { injectedHistory }
+                : {}),
+            }),
+          ]);
+          yield* Effect.gen(function* () {
+            const orchestrator = yield* OrchestratorV2;
+            const worker = yield* OrchestrationEffectWorkerV2;
+            const eventSink = yield* EventSinkV2;
+            const dispatch = (ordinal: number, text: string, selection: ModelSelection) =>
+              orchestrator.dispatch({
+                type: "message.dispatch",
+                commandId: CommandId.make(`regression:${ordinal}`),
+                threadId,
+                messageId: MessageId.make(`regression:${ordinal}`),
+                createdBy: "user",
+                creationSource: "web",
+                text,
+                attachments: [],
+                modelSelection: selection,
+                dispatchMode: { type: "start_immediately" },
+              });
+            const wait = (ordinal: number) =>
+              orchestrator.streamStoredEvents.pipe(
+                Stream.filter(
+                  ({ event }) =>
+                    event.type === "run.updated" &&
+                    event.payload.ordinal === ordinal &&
+                    (event.payload.status === "completed" || event.payload.status === "failed"),
+                ),
+                Stream.runHead,
+                Effect.andThen(worker.drain()),
+              );
+            yield* orchestrator.dispatch({
+              type: "thread.create",
+              commandId: CommandId.make("regression:create"),
+              threadId,
+              projectId,
+              createdBy: "user",
+              creationSource: "web",
+              title: "Handoff regression",
+              modelSelection: CODEX_MODEL_SELECTION,
+              runtimeMode: "full-access",
+              interactionMode: "default",
+              branch: null,
+              worktreePath: null,
+            });
+            yield* dispatch(1, "Original request with constraints", CODEX_MODEL_SELECTION);
+            yield* wait(1);
+            const write = eventSink.write;
+            const spy =
+              scenario === "delivery-write-failure"
+                ? vi.spyOn(eventSink, "write").mockImplementation((input) =>
+                    input.events.some(
+                      (event) =>
+                        event.type === "context-handoff.updated" &&
+                        event.payload.delivery?.status === "inline",
+                    )
+                      ? Effect.fail(
+                          new EventSinkWriteError({
+                            eventCount: input.events.length,
+                            cause: "bookkeeping unavailable",
+                          }),
+                        )
+                      : write(input),
+                  )
+                : undefined;
+            yield* Effect.addFinalizer(() => Effect.sync(() => spy?.mockRestore()));
+            const current = scenario.startsWith("compact")
+              ? "/compact"
+              : scenario === "large-current-input"
+                ? "x".repeat(9_000)
+                : "Continue work";
+            // First establish the returning native thread: the current request must
+            // not be charged as existing context on the subsequent handoff.
+            if (scenario === "large-current-input") {
+              yield* dispatch(2, "Establish target", CLAUDE_MODEL_SELECTION);
+              yield* wait(2);
+              yield* dispatch(3, "New source constraint", CODEX_MODEL_SELECTION);
+              yield* wait(3);
+            }
+            const targetOrdinal = scenario === "large-current-input" ? 4 : 2;
+            yield* dispatch(targetOrdinal, current, CLAUDE_MODEL_SELECTION);
+            yield* wait(targetOrdinal);
+            const projection = yield* orchestrator.getThreadProjection(threadId);
+            assert.equal(projection.runs.at(-1)?.status, "completed");
+            const handoff = projection.contextHandoffs.at(-1)!;
+            if (scenario === "compact-fallback") {
+              assert.isUndefined(handoff.delivery);
+              yield* dispatch(3, "Continue after compact", CLAUDE_MODEL_SELECTION);
+              yield* wait(3);
+              assert.include(
+                (yield* Ref.get(capturedTurns)).at(-1)!.text,
+                "Original request with constraints",
+              );
+              assert.equal(
+                (yield* orchestrator.getThreadProjection(threadId)).contextHandoffs.at(-1)?.delivery
+                  ?.status,
+                "inline",
+              );
+            } else if (scenario === "delivery-write-failure") {
+              assert.equal(handoff.delivery?.status, "pending");
+              assert.include(
+                (yield* Ref.get(capturedTurns)).at(-1)!.text,
+                "Original request with constraints",
+              );
+            } else {
+              assert.equal(handoff.delivery?.status, "injected");
+              assert.equal((yield* Ref.get(capturedTurns)).at(-1)!.text, current);
+              assert.include(
+                yield* encodeJson(yield* Ref.get(injectedHistory)),
+                "Original request with constraints",
+              );
+            }
+          }).pipe(
+            Effect.provide(
+              makeOrchestratorV2ReplayLayerWithRegistry(
+                {
+                  name: `handoff-${scenario}`,
+                  runtimePolicyOverride: {
+                    cwd,
+                    approvalPolicy: "never",
+                    sandboxPolicy: { type: "readOnly" },
+                  },
+                },
+                registry,
+              ),
+            ),
+          );
+        }),
+      ),
+    );
+  }
   for (const failure of ["turn-start", "injection"] as const) {
     it.live(
       `recovers ${failure} failure without duplicating history in the same native thread`,

@@ -13,6 +13,7 @@ export const deliverContextHandoffs = Effect.fn("orchestrationV2.deliverContextH
     readonly handoffs: ReadonlyArray<OrchestrationV2ContextHandoff>;
     readonly providerThread: OrchestrationV2ProviderThread;
     readonly budget: number;
+    readonly deferInline?: boolean;
     readonly alreadyDeliveredItemIds: ReadonlySet<string>;
     readonly inject?: (
       history: ProviderAdapterV2HistoricalContext,
@@ -26,7 +27,8 @@ export const deliverContextHandoffs = Effect.fn("orchestrationV2.deliverContextH
         handoff.delivery?.nativeThreadId !== nativeThreadId ||
         handoff.delivery.status === "pending",
     );
-    if (pending.length === 0) return { context: "", delivered: Effect.void };
+    if (pending.length === 0 || (input.deferInline && input.inject === undefined))
+      return { context: "", delivered: Effect.void };
     const coverage = pending
       .map(
         (handoff) =>
@@ -61,6 +63,7 @@ export const deliverContextHandoffs = Effect.fn("orchestrationV2.deliverContextH
       budget: input.budget,
     });
     if (historyCost(selected.messages, selected.context) > input.budget) {
+      if (input.deferInline) return { context: "", delivered: Effect.void };
       return yield* new ContextHandoffBudgetError();
     }
     const persist = (status: "pending" | "injected" | "inline") =>
@@ -109,6 +112,12 @@ export const deliverContextHandoffs = Effect.fn("orchestrationV2.deliverContextH
     } else {
       // Text-only delivery can also be accepted before a connection drops.
       yield* persist("pending");
+    }
+    if (input.deferInline) {
+      // Compaction APIs cannot accept an inline transcript. Keep it available
+      // for the next ordinary turn when native injection is unsupported.
+      yield* Effect.forEach(pending, input.persist, { discard: true });
+      return { context: "", delivered: Effect.void };
     }
     return {
       context: renderHistory(selected.messages, selected.context),

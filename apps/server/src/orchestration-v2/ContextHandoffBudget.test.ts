@@ -94,12 +94,14 @@ describe("handoff budget", () => {
   it("keeps old preview handoffs readable and delivery history off the wire", () => {
     const projected = projectContextHandoffForWire({
       ...handoff,
+      summaryText: "private transcript and command output",
       delivery: {
         nativeThreadId: "native:target",
         status: "injected",
         itemIds: [messages[0]!.itemId],
       },
     });
+    assert.equal(projected.summaryText, "");
     assert.isUndefined(projected.history);
     assert.isUndefined(projected.delivery);
     assert.equal(decodeHandoff(projected).id, handoff.id);
@@ -281,6 +283,40 @@ describe("handoff delivery", () => {
         assert.include(result.context, messages[1]!.text);
         assert.equal(durable.delivery?.status, "pending");
         yield* result.delivered;
+        assert.equal(durable.delivery?.status, "inline");
+      }),
+  );
+
+  it.effect(
+    "defers unsupported compaction history until a normal turn without marking delivery uncertain",
+    () =>
+      Effect.gen(function* () {
+        let durable = handoff;
+        const persist = (value: OrchestrationV2ContextHandoff) =>
+          Effect.sync(() => {
+            durable = value;
+          });
+        const compact = yield* deliverContextHandoffs({
+          handoffs: [durable],
+          providerThread,
+          budget: 16_000,
+          alreadyDeliveredItemIds: new Set(),
+          deferInline: true,
+          inject: () => Effect.succeed(false),
+          persist,
+        });
+        yield* compact.delivered;
+        assert.equal(compact.context, "");
+        assert.isUndefined(durable.delivery);
+        const next = yield* deliverContextHandoffs({
+          handoffs: [durable],
+          providerThread,
+          budget: 16_000,
+          alreadyDeliveredItemIds: new Set(),
+          persist,
+        });
+        assert.include(next.context, messages[0]!.text);
+        yield* next.delivered;
         assert.equal(durable.delivery?.status, "inline");
       }),
   );

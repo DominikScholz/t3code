@@ -128,7 +128,11 @@ export const layer: Layer.Layer<
               projection.runs.some(
                 (source) =>
                   source.id === handoff.targetRunId &&
-                  (source.status === "failed" || source.status === "interrupted"),
+                  (source.status === "failed" ||
+                    source.status === "interrupted" ||
+                    (source.status === "completed" &&
+                      handoff.history !== undefined &&
+                      handoff.delivery === undefined)),
               ))),
       );
       const nativeForkTransfer = projection.contextTransfers.find(
@@ -690,7 +694,10 @@ export const layer: Layer.Layer<
       const nativeContextBytes = () =>
         sameNativeThread
           ? projection.turnItems.reduce((sum, item) => {
-              if (item.providerThreadId !== providerThread.id && !deliveredItemIds.has(item.id))
+              if (
+                item.runId === run.id ||
+                (item.providerThreadId !== providerThread.id && !deliveredItemIds.has(item.id))
+              )
                 return sum;
               const historical = historicalMessage(item);
               return sum + (historical === null ? 0 : Buffer.byteLength(historical.text));
@@ -729,104 +736,125 @@ export const layer: Layer.Layer<
                 !deliveredItemIds.has(item.id) &&
                 historicalMessage(item) !== null,
             );
+      const startWithHandoffs = (
+        turnInput: Parameters<typeof session.startTurn>[0],
+        compact = false,
+      ) =>
+        Effect.gen(function* () {
+          // A failed turn/start can leave the requested turn absent from
+          // native history even when its preceding handoff was injected.
+          const retryHandoff =
+            missedItems.length === 0
+              ? []
+              : [
+                  yield* contextHandoffService.prepareProviderHandoff({
+                    threadId: projection.thread.id,
+                    targetRunId: run.id,
+                    transferId: null,
+                    fromProviderThreadIds: [providerThread.id],
+                    toProviderThreadId: providerThread.id,
+                    fromProviderInstanceId: run.providerInstanceId,
+                    toProviderInstanceId: run.providerInstanceId,
+                    coveredRunOrdinals: {
+                      from: missedRuns[0]!.ordinal,
+                      to: missedRuns.at(-1)!.ordinal,
+                    },
+                    strategy: "delta_since_target_last_seen",
+                    items: missedItems,
+                    runs: projection.runs,
+                    createdAt: yield* DateTime.now,
+                  }),
+                ];
+          const delivery = yield* deliverContextHandoffs({
+            handoffs: [...effectiveHandoffs, ...retryHandoff],
+            deferInline: compact,
+            providerThread: runningProviderThread,
+            budget: handoffBudget({
+              tokenCap,
+              userText,
+              attachments: message.attachments,
+              providerThread: budgetProviderThread,
+              nativeContextBytes:
+                budgetProviderThread.contextUsage?.usedTokens === undefined
+                  ? nativeContextBytes()
+                  : 0,
+            }),
+            alreadyDeliveredItemIds: deliveredItemIds,
+            ...(session.injectHistory === undefined
+              ? {}
+              : {
+                  inject: (history: ProviderAdapterV2HistoricalContext) =>
+                    session.injectHistory!({
+                      providerThread: runningProviderThread,
+                      ...history,
+                    }),
+                }),
+            persist: (handoff) =>
+              Effect.gen(function* () {
+                const updatedAt = yield* DateTime.now;
+                yield* eventSink.write({
+                  events: [
+                    {
+                      id: yield* idAllocator.allocate.event({
+                        threadId: projection.thread.id,
+                      }),
+                      type: "context-handoff.updated",
+                      threadId: projection.thread.id,
+                      runId: run.id,
+                      providerInstanceId: run.providerInstanceId,
+                      occurredAt: updatedAt,
+                      payload: { ...handoff, updatedAt },
+                    },
+                  ],
+                });
+              }),
+          });
+          if (!(yield* isCurrentAttemptInStatus("running"))) return;
+          const start = compact ? session.compactThread! : session.startTurn;
+          yield* start({
+            ...turnInput,
+            message: {
+              ...turnInput.message,
+              text:
+                delivery.context === ""
+                  ? userText
+                  : `${delivery.context}\n\nUser message:\n${userText}`,
+            },
+          });
+          // The provider already accepted the turn. A stale pending marker
+          // can force a fresh thread later, but must not stop live ingestion.
+          yield* delivery.delivered.pipe(
+            Effect.catchCause((cause) =>
+              Effect.logWarning("Failed to record accepted context handoff delivery", {
+                runId: run.id,
+                cause: Cause.pretty(cause),
+              }),
+            ),
+          );
+        }).pipe(
+          Effect.mapError(
+            (cause) =>
+              new ProviderAdapterTurnStartError({
+                driver: session.driver,
+                threadId: projection.thread.id,
+                providerThreadId: providerThread.id,
+                runId: run.id,
+                cause,
+              }),
+          ),
+        );
       const deliverySession =
         effectiveHandoffs.length === 0 && missedItems.length === 0
           ? session
           : {
               ...session,
-              startTurn: (turnInput: Parameters<typeof session.startTurn>[0]) =>
-                Effect.gen(function* () {
-                  // A failed turn/start can leave the requested turn absent from
-                  // native history even when its preceding handoff was injected.
-                  const retryHandoff =
-                    missedItems.length === 0
-                      ? []
-                      : [
-                          yield* contextHandoffService.prepareProviderHandoff({
-                            threadId: projection.thread.id,
-                            targetRunId: run.id,
-                            transferId: null,
-                            fromProviderThreadIds: [providerThread.id],
-                            toProviderThreadId: providerThread.id,
-                            fromProviderInstanceId: run.providerInstanceId,
-                            toProviderInstanceId: run.providerInstanceId,
-                            coveredRunOrdinals: {
-                              from: missedRuns[0]!.ordinal,
-                              to: missedRuns.at(-1)!.ordinal,
-                            },
-                            strategy: "delta_since_target_last_seen",
-                            items: missedItems,
-                            runs: projection.runs,
-                            createdAt: yield* DateTime.now,
-                          }),
-                        ];
-                  const delivery = yield* deliverContextHandoffs({
-                    handoffs: [...effectiveHandoffs, ...retryHandoff],
-                    providerThread: runningProviderThread,
-                    budget: handoffBudget({
-                      tokenCap,
-                      userText,
-                      attachments: message.attachments,
-                      providerThread: budgetProviderThread,
-                      nativeContextBytes:
-                        budgetProviderThread.contextUsage?.usedTokens === undefined
-                          ? nativeContextBytes()
-                          : 0,
-                    }),
-                    alreadyDeliveredItemIds: deliveredItemIds,
-                    ...(session.injectHistory === undefined
-                      ? {}
-                      : {
-                          inject: (history: ProviderAdapterV2HistoricalContext) =>
-                            session.injectHistory!({
-                              providerThread: runningProviderThread,
-                              ...history,
-                            }),
-                        }),
-                    persist: (handoff) =>
-                      Effect.gen(function* () {
-                        const updatedAt = yield* DateTime.now;
-                        yield* eventSink.write({
-                          events: [
-                            {
-                              id: yield* idAllocator.allocate.event({
-                                threadId: projection.thread.id,
-                              }),
-                              type: "context-handoff.updated",
-                              threadId: projection.thread.id,
-                              runId: run.id,
-                              providerInstanceId: run.providerInstanceId,
-                              occurredAt: updatedAt,
-                              payload: { ...handoff, updatedAt },
-                            },
-                          ],
-                        });
-                      }),
-                  });
-                  if (!(yield* isCurrentAttemptInStatus("running"))) return;
-                  yield* session.startTurn({
-                    ...turnInput,
-                    message: {
-                      ...turnInput.message,
-                      text:
-                        delivery.context === ""
-                          ? userText
-                          : `${delivery.context}\n\nUser message:\n${userText}`,
-                    },
-                  });
-                  yield* delivery.delivered;
-                }).pipe(
-                  Effect.mapError(
-                    (cause) =>
-                      new ProviderAdapterTurnStartError({
-                        driver: session.driver,
-                        threadId: projection.thread.id,
-                        providerThreadId: providerThread.id,
-                        runId: run.id,
-                        cause,
-                      }),
-                  ),
-                ),
+              startTurn: startWithHandoffs,
+              ...(session.compactThread === undefined
+                ? {}
+                : {
+                    compactThread: (turnInput: Parameters<typeof session.startTurn>[0]) =>
+                      startWithHandoffs(turnInput, true),
+                  }),
             };
       yield* runExecution.startRootRun({
         commandId: CommandId.make(`command:effect:provider-turn.start:${run.id}`),

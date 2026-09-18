@@ -9,7 +9,7 @@ import type {
 import * as Config from "effect/Config";
 
 export const DEFAULT_HANDOFF_TOKEN_CAP = 16_000;
-export const HANDOFF_BYTE_CAP = 64_000;
+const HANDOFF_BYTE_CAP = 64_000;
 export const handoffTokenCapConfig = Config.int("T3CODE_CONTEXT_HANDOFF_TOKEN_CAP").pipe(
   Config.withDefault(DEFAULT_HANDOFF_TOKEN_CAP),
   Config.map((value) => Math.max(1_024, Math.min(HANDOFF_BYTE_CAP, value))),
@@ -87,7 +87,7 @@ export function historicalMessage(
   };
 }
 
-export function renderHistoricalMessage(message: OrchestrationV2HistoricalMessage): string {
+function renderHistoricalMessage(message: OrchestrationV2HistoricalMessage): string {
   return `[Historical ${message.role}; ${message.kind}; thread=${message.threadId}; run=${message.runId ?? "imported"}; item=${message.itemId}; provider-thread=${message.providerThreadId ?? "none"}; status=${message.status}${message.runStatus === undefined ? "" : `; run-status=${message.runStatus}`}]\n${message.text}`;
 }
 
