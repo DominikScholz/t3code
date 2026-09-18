@@ -1,13 +1,14 @@
 ---
 name: test-t3-app
-description: Test T3 Code through its built-in Browser and Device panels against isolated development state. Use for UI verification, pairing recovery, and test fixtures.
+description: Test T3 Code's web and desktop UI through its built-in Browser panel against isolated development state. Use for browser verification, browser pairing recovery, and test fixtures. Use test-t3-mobile for native mobile verification.
 ---
 
-# Test T3 Code
+# Test T3 web and desktop
 
-Use T3's built-in panels for verification. If the required T3 tools are absent
-or the panel reports unavailable, explain the blocker and stop verification.
-Do not install or switch to another automation system.
+Use T3's built-in Browser panel for verification. If its tools are absent or
+the panel reports unavailable, explain the blocker and stop verification.
+Do not install or switch to another automation system. For native mobile
+testing, use [test-t3-mobile](../test-t3-mobile/SKILL.md).
 
 ## Start the app
 
@@ -20,20 +21,13 @@ Test with meaningful project and thread data. Read
 [references/sqlite-fixtures.md](references/sqlite-fixtures.md) only when
 inspecting or seeding SQLite. Stop the test server before direct fixture writes.
 
-## Use the T3 panels
+## Use the Browser panel
 
-For web, call `preview_status`, then `preview_open` if the Browser panel is
+Call `preview_status`, then `preview_open` if the Browser panel is
 closed. Navigate to the complete startup pairing URL once with
 `preview_navigate`, then use `preview_snapshot` and T3's interaction tools.
 If the token was consumed or expired, run `node apps/server/src/bin.ts pair`
 for a fresh one. Keep using the same tab.
-
-For mobile, call `device_list`, then `device_open` with the selected host and
-device IDs. T3 boots the device and shows its live stream in the Device panel.
-Follow the returned `quickStart`, using the exact `agentDevice.command` and
-all `targetArgs` on every command. Use `device_screenshot` to inspect the screen.
-See [test-t3-mobile](../test-t3-mobile/SKILL.md) for launching and pairing T3 Code
-Dev. T3 owns device tooling and connections.
 
 ## Verify and retain
 
