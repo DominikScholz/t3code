@@ -146,11 +146,6 @@ export function ScreenHeader(props: ScreenHeaderProps) {
           {props.trailing}
         </NativeHeaderToolbar>
       ) : null}
-      {search && !compactSearch ? (
-        <NativeHeaderToolbar placement="bottom">
-          <NativeHeaderToolbar.SearchBarSlot />
-        </NativeHeaderToolbar>
-      ) : null}
     </>
   );
 }
