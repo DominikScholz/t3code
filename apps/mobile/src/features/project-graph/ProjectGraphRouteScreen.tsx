@@ -32,8 +32,12 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { AppText as Text, AppTextInput } from "../../components/AppText";
+import { AppText as Text } from "../../components/AppText";
 import { ScreenHeader } from "../../components/ScreenHeader";
+import {
+  NATIVE_MAIL_SEARCH_TOOLBAR_CONTENT_INSET,
+  NATIVE_MAIL_SEARCH_TOOLBAR_SUPPORTED,
+} from "../layout/native-mail-search-toolbar";
 import { NativeHeaderToolbar } from "../../native/StackHeader";
 import { copyTextWithHaptic } from "../../lib/copyTextWithHaptic";
 import { useProjects, useThreadShellsForProjectRefs } from "../../state/entities";
@@ -359,8 +363,26 @@ function ProjectGraph({
   return (
     <View className="flex-1">
       <ScreenHeader
-        title="Project visualization"
-        subtitle={project.title}
+        title={project.title}
+        subtitle="Project visualization"
+        titleIcon={
+          <ProjectFavicon
+            size={28}
+            environmentId={project.environmentId}
+            projectTitle={project.title}
+            workspaceRoot={project.workspaceRoot}
+            faviconPath={project.faviconPath}
+          />
+        }
+        optionsVersion={[project.environmentId, project.id, project.title, project.faviconPath]}
+        search={{
+          value: search,
+          onChangeText: setSearch,
+          placeholder: "Find branch, commit, or thread",
+          compactPlaceholder: "Search graph",
+          compactToolbar: true,
+          menuInToolbar: false,
+        }}
         sidebar={false}
         onBack={() => navigation.goBack()}
         actions={[
@@ -383,44 +405,6 @@ function ProjectGraph({
         ]}
       />
       <View className="gap-2 border-b border-border-subtle px-4 py-3">
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Graph options"
-          onPress={() => setOptionsOpen(true)}
-          className="flex-row items-center gap-3"
-        >
-          <ProjectFavicon
-            size={28}
-            environmentId={project.environmentId}
-            projectTitle={group?.label ?? project.title}
-            workspaceRoot={project.workspaceRoot}
-            faviconPath={project.faviconPath}
-          />
-          <View className="min-w-0 flex-1 gap-0.5">
-            <Text className="text-base font-t3-semibold text-foreground" numberOfLines={1}>
-              {group?.label ?? project.title}
-            </Text>
-            <Text className="text-xs text-foreground-muted" numberOfLines={1}>
-              {project.workspaceRoot}
-            </Text>
-          </View>
-          <Text className="text-sm text-foreground-muted">Options ⌄</Text>
-        </Pressable>
-        <View className="flex-row items-center gap-2">
-          <AppTextInput
-            accessibilityLabel="Search project graph"
-            placeholder="Find branch, commit, or thread"
-            value={search}
-            onChangeText={(value) => {
-              setSearch(value);
-            }}
-            autoCorrect={false}
-            autoCapitalize="none"
-            returnKeyType="search"
-            className="min-h-11 flex-1 rounded-xl bg-subtle px-3 text-base text-foreground"
-          />
-          {search ? <Action label="Clear" onPress={() => setSearch("")} /> : null}
-        </View>
         {graph ? (
           <>
             <Text className="text-xs text-foreground-muted">
@@ -506,7 +490,14 @@ function ProjectGraph({
             windowSize={7}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="on-drag"
-            contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
+            contentContainerStyle={{
+              paddingBottom:
+                insets.bottom +
+                24 +
+                (NATIVE_MAIL_SEARCH_TOOLBAR_SUPPORTED
+                  ? NATIVE_MAIL_SEARCH_TOOLBAR_CONTENT_INSET
+                  : 0),
+            }}
             renderItem={({ item }) => (
               <GraphCanvasRow
                 row={item}
