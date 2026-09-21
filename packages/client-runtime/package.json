@@ -266,6 +266,14 @@
     "./file-preview": {
       "types": "./src/filePreview.ts",
       "default": "./src/filePreview.ts"
+    },
+    "./project-graph": {
+      "types": "./src/projectGraph.ts",
+      "default": "./src/projectGraph.ts"
+    },
+    "./graph-avatar": {
+      "types": "./src/graphAvatar.ts",
+      "default": "./src/graphAvatar.ts"
     }
   },
   "scripts": {
@@ -273,6 +281,7 @@
     "test": "vp test run"
   },
   "dependencies": {
+    "@noble/hashes": "catalog:",
     "@t3tools/contracts": "workspace:*",
     "@t3tools/shared": "workspace:*",
     "effect": "catalog:",
