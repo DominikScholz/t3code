@@ -37,6 +37,7 @@ import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
 import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
 import { useThreadSearch } from "../../state/queries";
 import { useThreadJumpShortcuts } from "../keyboard/threadKeyboardShortcuts";
+import { ProjectGraphButton } from "../project-graph/ProjectGraphButton";
 import { useThreadListV2Enabled } from "../threads/use-thread-list-v2-enabled";
 import { usePendingThreadOrder } from "../../state/thread-order";
 import { environmentServerConfigsAtom } from "../../state/server";
@@ -1104,6 +1105,14 @@ export function HomeScreen(props: HomeScreenProps) {
     projectCount: props.projects.length,
   });
 
+  const graphProject = props.projects.find(
+    (project) =>
+      (props.selectedEnvironmentId === null ||
+        project.environmentId === props.selectedEnvironmentId) &&
+      (selectedProjectRefKeys === null ||
+        selectedProjectRefKeys.has(scopedProjectKey(project.environmentId, project.id))),
+  );
+
   if (!hasAnyThreads) {
     return (
       <View className={Platform.OS === "android" ? "flex-1 bg-header" : "flex-1 bg-screen"}>
@@ -1136,6 +1145,7 @@ export function HomeScreen(props: HomeScreenProps) {
               }
               variant="plain"
             />
+            {graphProject ? <ProjectGraphButton project={graphProject} /> : null}
             {emptyState.loading ? (
               <View className="mt-4 items-center">
                 <ActivityIndicator colorClassName="accent-icon-muted" />
@@ -1147,7 +1157,12 @@ export function HomeScreen(props: HomeScreenProps) {
     );
   }
 
-  const listHeader = Platform.OS === "ios" ? null : <HomeTopContentSpacer />;
+  const listHeader = (
+    <>
+      {Platform.OS === "ios" ? null : <HomeTopContentSpacer />}
+      {graphProject ? <ProjectGraphButton project={graphProject} /> : null}
+    </>
+  );
 
   // Project scoping lives in the header filter menu (no inline chip row on
   // mobile — the menu is the one filter surface).
@@ -1209,6 +1224,7 @@ export function HomeScreen(props: HomeScreenProps) {
           className="flex-1 items-center justify-center overflow-hidden rounded-t-[28px] bg-screen px-4"
           style={{ paddingBottom: insets.bottom }}
         >
+          {listHeader}
           {threadListV2Enabled ? v2ListEmpty : listEmpty}
         </View>
       </View>

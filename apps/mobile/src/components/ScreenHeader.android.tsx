@@ -127,6 +127,7 @@ export function ScreenHeader(props: ScreenHeaderProps) {
     <AndroidScreenHeader
       title={props.title}
       subtitle={props.subtitle}
+      titleIcon={props.titleIcon}
       onBack={props.onBack}
       leading={props.sidebar !== false ? <AndroidWorkspaceSidebarButton /> : undefined}
       hideBottomBorder={props.hideBottomBorder}

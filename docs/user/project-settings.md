@@ -113,6 +113,12 @@ Threads without a matching local checkout are available through **Unlinked**.
 For projects with multiple checkouts or environments, use **Graph options** in the toolbar to
 choose the checkout and Git source.
 
+On mobile, open **Project visualization** from Home or a checkout in **Settings → Project
+overview**. Choose a project or checkout from the graph options. Tap a thread to open it, a
+history group to expand it, or a commit or branch for details and worktree actions. Search
+highlights matches; **Next** moves between them. Open **Unlinked** to find threads without a
+matching checkout.
+
 To see threads from another running T3 Code app, pair it under **Settings → Connections →
 Add environment**, then choose its project in the picker. Threads update live from that app.
 If its version does not support graphs yet, **Read Git from** can use another connected environment

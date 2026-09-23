@@ -31,6 +31,7 @@ export function AndroidHeaderIconButton(props: {
 export function AndroidScreenHeader(props: {
   readonly title: string;
   readonly subtitle?: string | null;
+  readonly titleIcon?: ReactNode;
   readonly actions?: ReadonlyArray<AndroidHeaderAction>;
   readonly leading?: ReactNode;
   readonly trailing?: ReactNode;
@@ -71,6 +72,8 @@ export function AndroidScreenHeader(props: {
         ) : null}
 
         {props.leading}
+
+        {props.titleIcon ? <View className="mr-1">{props.titleIcon}</View> : null}
 
         <View className={cn("min-w-0 flex-1", !props.onBack && "pl-1")}>
           <Text numberOfLines={1} style={titleTypography} className="text-header-foreground">

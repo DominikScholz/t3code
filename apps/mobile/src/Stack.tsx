@@ -46,6 +46,7 @@ import { ThreadRouteScreen } from "./features/threads/ThreadRouteScreen";
 import { ConnectionsRouteScreen } from "./features/connection/ConnectionsRouteScreen";
 import { ConnectionsNewRouteScreen } from "./features/connection/ConnectionsNewRouteScreen";
 import { HomeRouteScreen } from "./features/home/HomeRouteScreen";
+import { ProjectGraphRouteScreen } from "./features/project-graph/ProjectGraphRouteScreen";
 import { AddProjectDestinationRoute } from "./features/projects/AddProjectDestinationRoute";
 import { AddProjectLocalRoute } from "./features/projects/AddProjectLocalRoute";
 import { AddProjectRepositoryRoute } from "./features/projects/AddProjectRepositoryRoute";
@@ -593,6 +594,11 @@ const RootStackConfig = createNativeStackNavigator({
         headerBackVisible: false,
         ...getCompactBrandHeaderOptions(),
       },
+    }),
+    ProjectGraph: createNativeStackScreen({
+      screen: ProjectGraphRouteScreen,
+      linking: "project-graph",
+      options: { ...SOLID_HEADER_OPTIONS, headerBackVisible: false },
     }),
     Thread: createNativeStackScreen({
       screen: ThreadRouteScreen,

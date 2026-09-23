@@ -44,6 +44,7 @@ export interface ScreenHeaderSearch {
   readonly placeholder: string;
   readonly mode?: "inline" | "collapsible";
   readonly compactToolbar?: boolean;
+  readonly menuInToolbar?: boolean;
   readonly compactPlaceholder?: string;
   readonly closeAccessibilityLabel?: string;
   readonly clearAccessibilityLabel?: string;
@@ -55,6 +56,7 @@ export interface ScreenHeaderSearch {
 export interface ScreenHeaderProps {
   readonly title: string;
   readonly subtitle?: string;
+  readonly titleIcon?: ReactNode;
   readonly actions?: ReadonlyArray<ScreenHeaderAction>;
   readonly menus?: ReadonlyArray<ScreenHeaderMenu>;
   readonly search?: ScreenHeaderSearch;
