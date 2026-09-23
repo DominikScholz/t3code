@@ -46,6 +46,7 @@ const VCS_REFS_RETRY_SCHEDULE = Schedule.exponential("1 second").pipe(
 
 function canUseVcsRefsCache(input: VcsListRefsInput): boolean {
   return (
+    input.includeGraph !== true &&
     input.query === undefined &&
     input.cursor === undefined &&
     input.includeMatchingRemoteRefs === undefined &&
