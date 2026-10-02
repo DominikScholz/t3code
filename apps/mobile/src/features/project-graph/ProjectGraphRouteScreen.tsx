@@ -28,6 +28,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  type ScrollViewInstance,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -187,7 +188,7 @@ function ProjectGraph({
   const [resultsOpen, setResultsOpen] = useState(false);
   const [unsettledOnly, setUnsettledOnly] = useState(false);
   const [highlighted, setHighlighted] = useState<string | null>(null);
-  const horizontal = useRef<ScrollView>(null);
+  const horizontal = useRef<ScrollViewInstance>(null);
   const [limit, setLimit] = useState(2_000);
   const [retained, setRetained] = useState<{
     environmentId: EnvironmentId;
@@ -530,7 +531,7 @@ function ProjectGraph({
                     onPress={loadOlder}
                   />
                 </View>
-              ) : null
+              ) : undefined
             }
           />
         </ScrollView>
