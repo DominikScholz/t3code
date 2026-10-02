@@ -1,5 +1,7 @@
 import type { HeaderBarButtonMailSearchToolbarItem } from "react-native-screens";
-import { useId } from "react";
+import { useCallback, useId } from "react";
+import { View, useWindowDimensions } from "react-native";
+import { AppText as Text } from "./AppText";
 import { createNativeHeaderMenu } from "./nativeHeaderMenu.ios";
 import { ScreenHeaderButton } from "./ScreenHeaderButton";
 import { NativeHeaderToolbar, NativeStackScreenOptions } from "../native/StackHeader";
@@ -36,12 +38,17 @@ export function ScreenHeader(props: ScreenHeaderProps) {
   const { layout, panes, togglePrimarySidebar } = useAdaptiveWorkspaceLayout();
   const { themeVariables } = useAppearancePreferences();
   const { search, menus } = props;
-  const menu = menus?.[0];
+  const { title, subtitle, titleIcon } = props;
+  const renderTitle = useCallback(
+    () => <ScreenHeaderTitle title={title} subtitle={subtitle} titleIcon={titleIcon} />,
+    [title, subtitle, titleIcon],
+  );
+  const menu = search?.menuInToolbar === false ? undefined : menus?.[0];
   const compactSearch =
     search !== undefined &&
     (search.compactToolbar ?? !layout.usesSplitView) &&
     NATIVE_MAIL_SEARCH_TOOLBAR_SUPPORTED;
-  const visibleMenus = compactSearch ? (menus?.slice(1) ?? []) : (menus ?? []);
+  const visibleMenus = compactSearch && menu ? (menus?.slice(1) ?? []) : (menus ?? []);
   const refresh = search?.refreshInToolbar ? search.onRefresh : undefined;
   return (
     <>
@@ -54,7 +61,8 @@ export function ScreenHeader(props: ScreenHeaderProps) {
         options={{
           headerShown: true,
           title: props.title,
-          unstable_headerSubtitle: props.subtitle || undefined,
+          unstable_headerSubtitle: titleIcon ? undefined : subtitle || undefined,
+          ...(titleIcon ? { headerTitle: renderTitle } : undefined),
           ...(props.matchSearchSurface
             ? { contentStyle: { backgroundColor: themeVariables["--color-sheet-solid"] } }
             : undefined),
@@ -156,6 +164,25 @@ export function ScreenHeader(props: ScreenHeaderProps) {
         </NativeHeaderToolbar>
       ) : null}
     </>
+  );
+}
+
+function ScreenHeaderTitle({ title, subtitle, titleIcon }: ScreenHeaderProps) {
+  const { width } = useWindowDimensions();
+  return (
+    <View className="flex-row items-center gap-2" style={{ maxWidth: Math.max(0, width - 160) }}>
+      {titleIcon}
+      <View className="min-w-0 shrink">
+        <Text numberOfLines={1} className="text-base font-t3-semibold text-foreground">
+          {title}
+        </Text>
+        {subtitle ? (
+          <Text numberOfLines={1} className="text-xs text-foreground-muted">
+            {subtitle}
+          </Text>
+        ) : null}
+      </View>
+    </View>
   );
 }
 

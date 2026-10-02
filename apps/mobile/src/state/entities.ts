@@ -60,6 +60,12 @@ export function useThreadShells(): ReadonlyArray<EnvironmentThreadShell> {
   return useAtomValue(environmentThreadShells.threadShellsAtom);
 }
 
+export function useThreadShellsForProjectRefs(
+  refs: ReadonlyArray<ScopedProjectRef>,
+): ReadonlyArray<EnvironmentThreadShell> {
+  return useAtomValue(environmentThreadShells.threadShellsForProjectRefsAtom(refs));
+}
+
 export function useProject(ref: ScopedProjectRef | null): EnvironmentProject | null {
   return useAtomValue(ref === null ? EMPTY_PROJECT_ATOM : environmentProjects.projectAtom(ref));
 }

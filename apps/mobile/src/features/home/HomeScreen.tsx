@@ -38,6 +38,7 @@ import { scopedProjectKey } from "../../lib/scopedEntities";
 import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
 import { useThreadSearch } from "../../state/queries";
 import { useThreadJumpShortcuts } from "../keyboard/threadKeyboardShortcuts";
+import { ProjectGraphButton } from "../project-graph/ProjectGraphButton";
 import { usePendingThreadOrder } from "../../state/thread-order";
 import { environmentServerConfigsAtom } from "../../state/server";
 import type { PendingNewTask } from "../../state/use-pending-new-tasks";
@@ -902,6 +903,14 @@ export function HomeScreen(props: HomeScreenProps) {
     projectCount: props.projects.length,
   });
 
+  const graphProject = props.projects.find(
+    (project) =>
+      (props.selectedEnvironmentId === null ||
+        project.environmentId === props.selectedEnvironmentId) &&
+      (v2ScopedProjectKeys === null ||
+        v2ScopedProjectKeys.has(scopedProjectKey(project.environmentId, project.id))),
+  );
+
   if (!hasAnyThreads) {
     return (
       <View className="flex-1 bg-screen android:bg-header">
@@ -934,6 +943,7 @@ export function HomeScreen(props: HomeScreenProps) {
               }
               variant="plain"
             />
+            {graphProject ? <ProjectGraphButton project={graphProject} /> : null}
             {emptyState.loading ? (
               <View className="mt-4 items-center">
                 <ActivityIndicator colorClassName="accent-icon-muted" />
@@ -945,7 +955,12 @@ export function HomeScreen(props: HomeScreenProps) {
     );
   }
 
-  const listHeader = Platform.OS === "ios" ? undefined : <HomeTopContentSpacer />;
+  const listHeader = (
+    <>
+      {Platform.OS === "ios" ? null : <HomeTopContentSpacer />}
+      {graphProject ? <ProjectGraphButton project={graphProject} /> : null}
+    </>
+  );
 
   // Project scoping lives in the header filter menu (no inline chip row on
   // mobile — the menu is the one filter surface).
@@ -987,6 +1002,7 @@ export function HomeScreen(props: HomeScreenProps) {
           className="flex-1 items-center justify-center overflow-hidden rounded-t-[28px] bg-screen px-4"
           style={{ paddingBottom: insets.bottom }}
         >
+          {listHeader}
           {v2ListEmpty}
         </View>
       </View>
