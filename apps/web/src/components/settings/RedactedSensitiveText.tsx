@@ -31,7 +31,9 @@ export function RedactedSensitiveText(props: {
   readonly hideTooltip: string;
   readonly className?: string;
 }) {
-  const [revealed, setRevealed] = useState(false);
+  // "hiding" blurs the real value first; the placeholder swaps in once the blur has faded in.
+  const [visibility, setVisibility] = useState<"hidden" | "hiding" | "revealed">("hidden");
+  const revealed = visibility === "revealed";
   const value = props.value?.trim();
   const redacted = useMemo(() => (value ? redactedPlaceholder(value) : ""), [value]);
 
@@ -48,10 +50,16 @@ export function RedactedSensitiveText(props: {
               revealed ? "text-muted-foreground" : "select-none text-muted-foreground blur-xs",
               props.className,
             )}
-            onClick={() => setRevealed((current) => !current)}
+            onClick={() =>
+              setVisibility((current) => (current === "revealed" ? "hiding" : "revealed"))
+            }
+            onTransitionEnd={(event) => {
+              if (event.propertyName !== "filter") return;
+              setVisibility((current) => (current === "hiding" ? "hidden" : current));
+            }}
             aria-label={props.ariaLabel}
           >
-            {revealed ? value : redacted}
+            {visibility === "hidden" ? redacted : value}
           </button>
         }
       />
