@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { cn } from "../../lib/utils";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -36,6 +36,13 @@ export function RedactedSensitiveText(props: {
   const revealed = visibility === "revealed";
   const value = props.value?.trim();
   const redacted = useMemo(() => (value ? redactedPlaceholder(value) : ""), [value]);
+
+  // Finishes the hide when the blur never reports its end, e.g. a theme change suppressed it.
+  useEffect(() => {
+    if (visibility !== "hiding") return;
+    const timeout = window.setTimeout(() => setVisibility("hidden"), 400);
+    return () => window.clearTimeout(timeout);
+  }, [visibility]);
 
   if (!value) return null;
 
