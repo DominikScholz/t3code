@@ -2,6 +2,8 @@ import {
   buildTraitsTriggerDisplay,
   getDescriptorStringValue,
   getTraitSelectChange,
+  getEffortOptionLevels,
+  getTraitsEffortLevel,
   replaceDescriptorCurrentValue,
   selectableProviderOptionChoices,
   REASONING_SELECT_DESCRIPTOR_IDS,
@@ -19,12 +21,12 @@ import {
 import {
   buildProviderOptionSelectionsFromDescriptors,
   getProviderOptionCurrentLabel,
+  getProviderOptionCurrentValue,
   getProviderOptionDescriptors,
   isClaudeUltrathinkPrompt,
   normalizeModelSlug,
 } from "@t3tools/shared/model";
-import { memo } from "react";
-import { BrainIcon, GaugeIcon } from "lucide-react";
+import { memo, type ReactNode } from "react";
 import {
   Menu,
   MenuGroup,
@@ -42,9 +44,10 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   ComposerControl,
   ComposerControlChevron,
-  ComposerControlIcon,
   type ComposerControlSize,
 } from "./ComposerControl";
+import { EffortGaugeIcon, type EffortGaugeSpeed } from "./EffortGaugeIcon";
+import { getTraitsSpeedDisplay } from "./TraitsSpeed";
 import { useComposerMenuProps } from "./composerEventScope";
 import { useComposerMenuState } from "./useComposerMenuState";
 
@@ -374,6 +377,12 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
     hasAnyControls,
     modelIsUnavailable,
   } = selected;
+  const currentEffortLevel = getTraitsEffortLevel({
+    descriptor: primarySelectDescriptor,
+    ultrathinkPromptControlled,
+    modelSelection,
+    reportedModelSelection,
+  });
   const updateDescriptors = (nextDescriptors: ReadonlyArray<ProviderOptionDescriptor>) => {
     updateModelOptions(buildProviderOptionSelectionsFromDescriptors(nextDescriptors));
   };
@@ -424,6 +433,21 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
   return (
     <>
       {selectDescriptors.map((descriptor, index) => {
+        const effortLevels = getEffortOptionLevels(descriptor);
+        const optionIcon = (option: { id: string; label: string }) => {
+          if (effortLevels) {
+            return (
+              <EffortGaugeIcon
+                level={effortLevels.get(option.id) ?? null}
+                ultracode={option.id === "ultracode"}
+              />
+            );
+          }
+          if (provider !== "codex" || descriptor.id !== "serviceTier") return null;
+          return (
+            <EffortGaugeIcon level={currentEffortLevel} speed={serviceTierSpeed(option.label)} />
+          );
+        };
         const selectedValue =
           ultrathinkPromptControlled && descriptor.id === primarySelectDescriptor?.id
             ? "ultrathink"
@@ -454,17 +478,19 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
                     closeOnClick
                     disabled={ultrathinkInBodyText && descriptor.id === primarySelectDescriptor?.id}
                   >
-                    <span className="flex w-full min-w-0 flex-col">
-                      <span className="flex min-w-0 items-center gap-1">
-                        <span className="min-w-0 truncate">{option.label}</span>
-                        {option.isDefault ? <DefaultBadge /> : null}
-                      </span>
-                      {option.description ? (
-                        <span className="max-w-56 text-pretty text-muted-foreground/80 text-xs">
-                          {option.description}
+                    <MenuOptionRow icon={optionIcon(option)}>
+                      <span className="flex w-full min-w-0 flex-col">
+                        <span className="flex min-w-0 items-center gap-1">
+                          <span className="min-w-0 truncate">{option.label}</span>
+                          {option.isDefault ? <DefaultBadge /> : null}
                         </span>
-                      ) : null}
-                    </span>
+                        {option.description ? (
+                          <span className="max-w-56 text-pretty text-muted-foreground/80 text-xs">
+                            {option.description}
+                          </span>
+                        ) : null}
+                      </span>
+                    </MenuOptionRow>
                   </MenuRadioItem>
                 ))}
               </MenuRadioGroup>
@@ -492,9 +518,20 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
               >
                 {(["on", "off"] as const).map((value) => (
                   <MenuRadioItem key={value} value={value} hideIndicator closeOnClick>
-                    <span className="flex w-full min-w-0 items-center justify-between gap-3">
-                      <span>{value === "on" ? "On" : "Off"}</span>
-                    </span>
+                    <MenuOptionRow
+                      icon={
+                        descriptor.id === "fastMode" ? (
+                          <EffortGaugeIcon
+                            level={currentEffortLevel}
+                            speed={value === "on" ? "fast" : null}
+                          />
+                        ) : null
+                      }
+                    >
+                      <span className="flex w-full min-w-0 items-center justify-between gap-3">
+                        <span>{value === "on" ? "On" : "Off"}</span>
+                      </span>
+                    </MenuOptionRow>
                   </MenuRadioItem>
                 ))}
               </MenuRadioGroup>
@@ -505,6 +542,21 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
     </>
   );
 });
+
+function serviceTierSpeed(label: string): EffortGaugeSpeed | null {
+  return label === "Ultrafast" ? "ultrafast" : label === "Fast" ? "fast" : null;
+}
+
+// Fast icons are wider; a fixed right-aligned slot keeps every gauge and label in one column.
+function MenuOptionRow({ icon, children }: { icon: ReactNode; children: ReactNode }) {
+  if (!icon) return children;
+  return (
+    <span className="flex min-w-0 items-center gap-2">
+      <span className="flex w-5 shrink-0 justify-end">{icon}</span>
+      {children}
+    </span>
+  );
+}
 
 export const TraitsPicker = memo(function TraitsPicker({
   provider,
@@ -555,14 +607,33 @@ export const TraitsPicker = memo(function TraitsPicker({
     return null;
   }
 
+  const modelSelection =
+    instanceId && model ? { instanceId, model, options: modelOptions ?? [] } : null;
   const { label: triggerLabel } = buildTraitsTriggerDisplay({
     provider,
     descriptors,
     primarySelectDescriptorId: primarySelectDescriptor?.id ?? null,
     ultrathinkPromptControlled,
-    modelSelection: instanceId && model ? { instanceId, model, options: modelOptions ?? [] } : null,
+    modelSelection,
     reportedModelSelection,
   });
+  const effortLevel = getTraitsEffortLevel({
+    descriptor: primarySelectDescriptor,
+    ultrathinkPromptControlled,
+    modelSelection,
+    reportedModelSelection,
+  });
+  const triggerSpeed =
+    descriptors.flatMap(
+      (descriptor) => getTraitsSpeedDisplay(provider, descriptor)?.speedIcon ?? [],
+    )[0] ?? null;
+  const triggerUltracode =
+    !ultrathinkPromptControlled &&
+    getProviderOptionCurrentValue(
+      primarySelectDescriptor,
+      modelSelection,
+      reportedModelSelection,
+    ) === "ultracode";
   const isCodexStyle = provider === "codex";
 
   return (
@@ -600,8 +671,12 @@ export const TraitsPicker = memo(function TraitsPicker({
                 size === "xs" ? "gap-1" : "gap-1.5",
               )}
             >
-              <ComposerControlIcon icon={BrainIcon} size={size} className="redesign:hidden" />
-              <ComposerControlIcon icon={GaugeIcon} size={size} className="hidden redesign:block" />
+              <EffortGaugeIcon
+                level={effortLevel}
+                speed={triggerSpeed}
+                ultracode={triggerUltracode}
+                size={size}
+              />
               <span data-composer-control-label className="min-w-0 truncate">
                 {triggerLabel}
               </span>
@@ -609,8 +684,12 @@ export const TraitsPicker = memo(function TraitsPicker({
             </span>
           ) : (
             <>
-              <ComposerControlIcon icon={BrainIcon} size={size} className="redesign:hidden" />
-              <ComposerControlIcon icon={GaugeIcon} size={size} className="hidden redesign:block" />
+              <EffortGaugeIcon
+                level={effortLevel}
+                speed={triggerSpeed}
+                ultracode={triggerUltracode}
+                size={size}
+              />
               <span data-composer-control-label>{triggerLabel}</span>
               <ComposerControlChevron size={size} />
             </>

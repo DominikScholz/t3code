@@ -179,3 +179,63 @@ export function buildTraitsTriggerDisplay(input: {
   }
   return { label: labels.join(" · ") };
 }
+
+// Providers list effort options in different orders (Grok puts xhigh first), so the known
+// ids are ranked explicitly and only unknown option sets fall back to list order.
+const EFFORT_RANKS: Readonly<Record<string, number>> = {
+  none: 0,
+  off: 0,
+  minimal: 1,
+  low: 2,
+  medium: 3,
+  high: 4,
+  xhigh: 5,
+  // Ultracode runs xhigh reasoning plus workflow orchestration; it is not deeper thinking.
+  ultracode: 5,
+  max: 6,
+  ultrathink: 6,
+  ultra: 7,
+};
+
+/** Each reasoning option's position within the model's own range, from 0 to 1. */
+export function getEffortOptionLevels(
+  descriptor: ProviderOptionDescriptor | null | undefined,
+): ReadonlyMap<string, number> | null {
+  if (
+    !descriptor ||
+    descriptor.type !== "select" ||
+    !REASONING_SELECT_DESCRIPTOR_IDS.has(descriptor.id)
+  ) {
+    return null;
+  }
+  const options = descriptor.options.filter((option) => option.id !== "default");
+  if (options.length < 2) return null;
+  const ranks = options.map((option) => EFFORT_RANKS[option.id]);
+  if (ranks.every((rank) => rank !== undefined)) {
+    const min = Math.min(...ranks);
+    const max = Math.max(...ranks);
+    if (max === min) return null;
+    return new Map(
+      options.map((option, index) => [option.id, (ranks[index]! - min) / (max - min)]),
+    );
+  }
+  return new Map(options.map((option, index) => [option.id, index / (options.length - 1)]));
+}
+
+/** Position of the current reasoning effort within the model's own range, from 0 to 1. */
+export function getTraitsEffortLevel(input: {
+  descriptor: ProviderOptionDescriptor | null;
+  ultrathinkPromptControlled: boolean;
+  modelSelection?: ModelSelection | null;
+  reportedModelSelection?: ModelSelection | null | undefined;
+}): number | null {
+  const levels = getEffortOptionLevels(input.descriptor);
+  if (!levels) return null;
+  if (input.ultrathinkPromptControlled) return 1;
+  const currentValue = getProviderOptionCurrentValue(
+    input.descriptor,
+    input.modelSelection,
+    input.reportedModelSelection,
+  );
+  return typeof currentValue === "string" ? (levels.get(currentValue) ?? null) : null;
+}
