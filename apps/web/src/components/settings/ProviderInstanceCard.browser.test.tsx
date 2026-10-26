@@ -35,7 +35,7 @@ it("blurs the revealed email before replacing it with the placeholder", async ()
   const placeholder = toggle.textContent;
   const hiddenFilter = getComputedStyle(toggle).filter;
   await screen.getByRole("button", { name: label }).click();
-  await Promise.all(toggle.getAnimations().map((animation) => animation.finished));
+  await expect.element(screen.getByRole("button", { name: label })).toHaveStyle({ filter: "none" });
   expect(toggle.textContent).toBe(email);
   const revealedFilter = getComputedStyle(toggle).filter;
 
@@ -56,7 +56,7 @@ it("keeps a later hide intact after revealing during a theme-interrupted hide", 
   const placeholder = toggle.textContent;
   const hiddenFilter = getComputedStyle(toggle).filter;
   await screen.getByRole("button", { name: label }).click();
-  await Promise.all(toggle.getAnimations().map((animation) => animation.finished));
+  await expect.element(screen.getByRole("button", { name: label })).toHaveStyle({ filter: "none" });
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   using _timers = { [Symbol.dispose]: () => vi.useRealTimers() };
 
