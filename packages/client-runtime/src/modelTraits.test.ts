@@ -45,6 +45,12 @@ describe("getTraitsEffortLevel", () => {
         ultrathinkPromptControlled: false,
       }),
     ).toBe(0.5);
+    expect(
+      getTraitsEffortLevel({
+        descriptor: effort(["default", "deep"], "default"),
+        ultrathinkPromptControlled: false,
+      }),
+    ).toBe(0);
   });
 
   it("pins ultrathink to the top", () => {

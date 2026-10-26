@@ -208,7 +208,7 @@ export function getEffortOptionLevels(
   ) {
     return null;
   }
-  const options = descriptor.options.filter((option) => option.id !== "default");
+  const { options } = descriptor;
   if (options.length < 2) return null;
   const ranks = options.map((option) => EFFORT_RANKS[option.id]);
   if (ranks.every((rank) => rank !== undefined)) {
