@@ -1,6 +1,6 @@
 import { expect, it, vi } from "vite-plus/test";
 
-import { act, render } from "../../../test/render";
+import { act, fakeTimers, render } from "../../../test/render";
 import { RedactedSensitiveText } from "./RedactedSensitiveText";
 
 import "../../index.css";
@@ -57,8 +57,7 @@ it("keeps a later hide intact after revealing during a theme-interrupted hide", 
   const hiddenFilter = getComputedStyle(toggle).filter;
   await screen.getByRole("button", { name: label }).click();
   await expect.element(screen.getByRole("button", { name: label })).toHaveStyle({ filter: "none" });
-  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-  using _timers = { [Symbol.dispose]: () => vi.useRealTimers() };
+  using _timers = fakeTimers();
 
   screen.container.classList.add("no-transitions");
   await act(() => toggle.click());
