@@ -84,7 +84,10 @@ export interface AcpPatchedProtocolOptions {
   ) => Effect.Effect<void, never>;
 
   readonly transformSessionUpdate?: (
-    notification: AcpSchema.UpdateSessionNotification | AcpSchemaV1.SessionNotification,
+    notification:
+      | AcpSchema.UpdateSessionNotification
+      | AcpSchemaV1.SessionNotification
+      | AcpCompat.SessionNotification,
   ) =>
     | AcpSchema.UpdateSessionNotification
     | AcpSchemaV1.SessionNotification
@@ -136,7 +139,22 @@ interface AcpOutgoingWriterState {
 }
 
 const decodeSessionUpdate = Schema.decodeUnknownEffect(
-  Schema.Union([AcpSchema.UpdateSessionNotification, AcpSchemaV1.SessionNotification]),
+  Schema.Union([
+    // Claude ACP v2 reports prompt failures on idle; alpha.3 omits that field.
+    Schema.Struct({
+      ...AcpSchema.UpdateSessionNotification.fields,
+      update: Schema.Struct({
+        sessionUpdate: Schema.Literal("state_update"),
+        state: Schema.Literal("idle"),
+        stopReason: Schema.optionalKey(Schema.NullOr(AcpSchema.StopReason)),
+        usage: Schema.optionalKey(Schema.NullOr(AcpSchema.Usage)),
+        error: Schema.optionalKey(Schema.NullOr(AcpSchema.Error)),
+        _meta: AcpSchema.UpdateSessionNotification.fields._meta,
+      }),
+    }),
+    AcpSchema.UpdateSessionNotification,
+    AcpSchemaV1.SessionNotification,
+  ]),
 );
 const decodeElicitationComplete = Schema.decodeUnknownEffect(
   AcpSchema.CompleteElicitationNotification,
@@ -507,11 +525,8 @@ export const makeAcpPatchedProtocol = Effect.fn("makeAcpPatchedProtocol")(functi
       );
   };
 
-  // A notification has no reply to fail, so one the schema rejects is logged
-  // and dropped. Ending the connection over it would kill a working session
-  // because one update, possibly from a newer spec, did not parse. An agent
-  // repeats a bad shape on every update, so each distinct failure is warned
-  // about once per connection.
+  // Drop undecodable notifications without ending working sessions; newer specs may add unknown shapes.
+  // Warn once per distinct failure per connection because agents repeat bad payloads.
   const dropUndecodableNotification = (method: string) => (cause: Schema.SchemaError) => {
     const error = AcpError.AcpProtocolParseError.fromSchemaError(
       "decode-notification-payload",

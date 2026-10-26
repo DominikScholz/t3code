@@ -242,6 +242,7 @@ export type PromptRequest = Omit<V2.PromptRequest, "prompt"> & {
 export interface PromptResponse {
   readonly stopReason: StopReason;
   readonly usage?: V2.Usage | null;
+  readonly error?: V2.Error | null;
   readonly _meta?: Meta;
 }
 
@@ -317,6 +318,7 @@ export type SessionUpdate =
       readonly state: "idle";
       readonly stopReason?: StopReason | null;
       readonly usage?: Usage | null;
+      readonly error?: V2.Error | null;
       readonly _meta?: Meta;
     }
   | {

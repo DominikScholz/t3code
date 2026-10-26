@@ -1,10 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off - Bridges Playwright's WebSocket transport to the desktop's fds.
-/**
- * Playwright connects over CDP only through a WebSocket URL, so each attached
- * desktop tab gets a loopback endpoint with an unguessable path. Its frames
- * cross the bootstrap file descriptors to the desktop's relay, which owns the
- * tab's `webContents.debugger`.
- */
+/** Playwright needs a CDP WebSocket; the secret loopback endpoint relays desktop debugger frames over bootstrap fds. */
 import * as NodeStream from "@effect/platform-node/NodeStream";
 import * as NodeSocketServer from "@effect/platform-node/NodeSocketServer";
 import {
@@ -44,10 +39,7 @@ export class DesktopBrowserChannel extends Context.Service<
   DesktopBrowserChannel,
   {
     readonly available: boolean;
-    /**
-     * Subscribes before it checks, so an attach landing in between is never
-     * missed.
-     */
+    /** Subscribe before checking so concurrent attaches cannot be missed. */
     readonly awaitAttached: (key: DesktopTabKey, timeout: Duration.Input) => Effect.Effect<boolean>;
     readonly detached: Stream.Stream<DesktopTabKey>;
     readonly attached: Stream.Stream<DesktopTabKey>;
@@ -57,6 +49,8 @@ export class DesktopBrowserChannel extends Context.Service<
       key: DesktopTabKey,
       pointer: { readonly phase: "move" | "click"; readonly x: number; readonly y: number },
     ) => Effect.Effect<void>;
+    /** Never fails. A failed write means a broken channel; the next backend starts with no turns. */
+    readonly turn: (threadId: string, active: boolean) => Effect.Effect<void>;
   }
 >()("t3/preview/DesktopBrowserChannel") {}
 
@@ -78,6 +72,7 @@ const make = Effect.gen(function* () {
       isAttached: () => Effect.succeed(false),
       endpoint: () => Effect.die("No desktop app is attached to this server."),
       pointer: () => Effect.void,
+      turn: () => Effect.void,
     });
   }
 
@@ -91,8 +86,7 @@ const make = Effect.gen(function* () {
       ),
     );
 
-  // Socket reads can be cancelled while the desktop keeps its write end open.
-  // Filesystem reads on this pipe keep Node alive after scope shutdown.
+  // Use cancellable socket reads; filesystem pipe reads keep Node alive after scope shutdown.
   const readable = yield* Effect.acquireRelease(
     Effect.sync(() => new NodeNet.Socket({ fd: inputFd, readable: true, writable: false })),
     (stream) => Effect.sync(() => stream.destroy()),
@@ -130,65 +124,64 @@ const make = Effect.gen(function* () {
     Effect.forkScoped,
   );
 
-  const endpoint = (key: DesktopTabKey) =>
-    Effect.gen(function* () {
-      const id = keyOf(key);
-      const secret = NodeCrypto.randomBytes(24).toString("base64url");
-      const server = yield* NodeSocketServer.makeWebSocket({
-        host: "127.0.0.1",
-        port: 0,
-        path: `/${secret}`,
-      }).pipe(Effect.orDie);
-      const queue = yield* Queue.unbounded<string>();
-      inbound.set(id, queue);
-      // A detach before this registration shut down no queue, so check again.
-      if (!attachedTabs.has(id)) {
-        inbound.delete(id);
-        return yield* Effect.die("The desktop tab detached before the server connected.");
-      }
-      yield* Effect.addFinalizer(() =>
+  const endpoint = Effect.fn("DesktopBrowserChannel.endpoint")(function* (key: DesktopTabKey) {
+    const id = keyOf(key);
+    const secret = NodeCrypto.randomBytes(24).toString("base64url");
+    const server = yield* NodeSocketServer.makeWebSocket({
+      host: "127.0.0.1",
+      port: 0,
+      path: `/${secret}`,
+    }).pipe(Effect.orDie);
+    const queue = yield* Queue.unbounded<string>();
+    inbound.set(id, queue);
+    // A detach before this registration shut down no queue, so check again.
+    if (!attachedTabs.has(id)) {
+      inbound.delete(id);
+      return yield* Effect.die("The desktop tab detached before the server connected.");
+    }
+    yield* Effect.addFinalizer(() =>
+      Effect.gen(function* () {
+        if (inbound.get(id) === queue) inbound.delete(id);
+        yield* Queue.shutdown(queue);
+        yield* command({ type: "release", ...key });
+      }),
+    );
+    // The relay serves one Playwright connection; a second would see the first's sessions.
+    let connected = false;
+    yield* server
+      .run((socket) =>
         Effect.gen(function* () {
-          if (inbound.get(id) === queue) inbound.delete(id);
-          yield* Queue.shutdown(queue);
-          yield* command({ type: "release", ...key });
-        }),
-      );
-      // The relay serves one Playwright connection; a second would see the first's sessions.
-      let connected = false;
-      yield* server
-        .run((socket) =>
-          Effect.gen(function* () {
-            if (connected) return;
-            connected = true;
-            const writer = yield* socket.writer;
-            const reader = yield* socket.reader;
-            yield* Stream.fromQueue(queue).pipe(
-              Stream.runForEach((message) => writer.write(message)),
-              Effect.forkScoped,
-            );
-            const decoder = new TextDecoder();
-            return yield* reader.pull.pipe(
-              Effect.flatMap((frames) =>
-                Effect.forEach(
-                  frames,
-                  (frame) =>
-                    command({
-                      type: "cdp",
-                      ...key,
-                      message: typeof frame === "string" ? frame : decoder.decode(frame),
-                    }),
-                  { discard: true },
-                ),
+          if (connected) return;
+          connected = true;
+          const writer = yield* socket.writer;
+          const reader = yield* socket.reader;
+          yield* Stream.fromQueue(queue).pipe(
+            Stream.runForEach((message) => writer.write(message)),
+            Effect.forkScoped,
+          );
+          const decoder = new TextDecoder();
+          return yield* reader.pull.pipe(
+            Effect.flatMap((frames) =>
+              Effect.forEach(
+                frames,
+                (frame) =>
+                  command({
+                    type: "cdp",
+                    ...key,
+                    message: typeof frame === "string" ? frame : decoder.decode(frame),
+                  }),
+                { discard: true },
               ),
-              Effect.forever,
-            );
-          }).pipe(Effect.scoped, Effect.ignore),
-        )
-        .pipe(Effect.forkScoped);
-      const address = server.address;
-      if (address._tag !== "InetAddressV4") return yield* Effect.die("Unexpected relay address.");
-      return `ws://127.0.0.1:${address.port}/${secret}`;
-    });
+            ),
+            Effect.forever,
+          );
+        }).pipe(Effect.scoped, Effect.ignore),
+      )
+      .pipe(Effect.forkScoped);
+    const address = server.address;
+    if (address._tag !== "InetAddressV4") return yield* Effect.die("Unexpected relay address.");
+    return `ws://127.0.0.1:${address.port}/${secret}`;
+  });
 
   return DesktopBrowserChannel.of({
     available: true,
@@ -217,6 +210,7 @@ const make = Effect.gen(function* () {
     isAttached: (key) => Effect.sync(() => attachedTabs.has(keyOf(key))),
     endpoint,
     pointer: (key, pointer) => command({ type: "pointer", ...key, ...pointer }),
+    turn: (threadId, active) => command({ type: "turn", threadId, active }),
   });
 });
 

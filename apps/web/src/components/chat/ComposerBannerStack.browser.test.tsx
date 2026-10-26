@@ -1,60 +1,25 @@
-import "../../index.css";
+import { InfoIcon } from "lucide-react";
+import { expect, it, vi } from "vite-plus/test";
+import { userEvent } from "vite-plus/test/browser";
 
-import { act } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
+import { render } from "../../../test/render";
+import { ComposerBannerStack, type ComposerBannerStackItem } from "./ComposerBannerStack";
 
-import { ComposerBannerStack } from "./ComposerBannerStack";
+it("commits a dismissal when the thread switches during the exit transition", async () => {
+  const onDismiss = vi.fn();
+  const item: ComposerBannerStackItem = {
+    id: "notice",
+    variant: "info",
+    icon: <InfoIcon />,
+    title: "Thread A notice",
+    dismissLabel: "Dismiss notice",
+    onDismiss,
+  };
+  await using screen = await render(<ComposerBannerStack key="thread-a" items={[item]} />);
 
-let root: Root;
-let container: HTMLDivElement;
+  await userEvent.click(screen.getByRole("button", { name: "Dismiss notice" }));
+  // The composer keys the stack by thread, so switching threads remounts it mid-exit.
+  await screen.rerender(<ComposerBannerStack key="thread-b" items={[]} />);
 
-beforeEach(() => {
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  container = document.createElement("div");
-  document.body.append(container);
-  root = createRoot(container);
-});
-
-afterEach(async () => {
-  await act(async () => root.unmount());
-  container.remove();
-  vi.unstubAllGlobals();
-});
-
-const nextFrame = () =>
-  act(() => new Promise<void>((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0))));
-
-async function render(width: number, description: string) {
-  container.style.width = `${width}px`;
-  await act(async () =>
-    root.render(
-      <ComposerBannerStack
-        items={[{ id: "usage", variant: "info", icon: null, title: "Usage limits", description }]}
-      />,
-    ),
-  );
-  await nextFrame();
-}
-
-const hasDetails = () => container.querySelector('[aria-label="Show notice details"]') !== null;
-
-it("only offers notice details when the description cannot fit", async () => {
-  await render(700, "OpenCode");
-  expect(hasDetails()).toBe(false);
-
-  await render(700, "OpenCode ".repeat(40));
-  expect(hasDetails()).toBe(true);
-
-  container.style.width = "4000px";
-  await nextFrame();
-  expect(hasDetails()).toBe(false);
-
-  await render(4000, "OpenCode");
-  expect(hasDetails()).toBe(false);
-
-  // A narrow composer hides the description entirely, so details are the only way to read it.
-  container.style.width = "300px";
-  await nextFrame();
-  expect(hasDetails()).toBe(true);
+  await vi.waitFor(() => expect(onDismiss).toHaveBeenCalledTimes(1));
 });

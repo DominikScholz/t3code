@@ -1,15 +1,18 @@
+import type { ServerProviderSkill } from "@t3tools/contracts";
 import { preloadPatchFile } from "@pierre/diffs/ssr";
 import { useEffect, useRef, useState } from "react";
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from "../ComposerPromptEditor";
 import { EMPTY_COMPOSER_CONTEXT_RECORDS } from "../composerContextPresentation";
 import { terminalThemeFromApp } from "../ThreadTerminalDrawer";
-import { useTheme } from "../../hooks/useTheme";
-import { DISCONNECTED_COMPOSER_PLACEHOLDER } from "../../composerPlaceholder";
+import { useRenderedAppearance, useTheme } from "../../hooks/useTheme";
+import { DEFAULT_COMPOSER_PLACEHOLDER } from "../../composerPlaceholder";
 import { resolveDiffThemeName, type DiffThemeName } from "../../lib/diffRendering";
 import { PREFERRED_HIGHLIGHTER } from "../../lib/syntaxHighlighting";
 import { GhosttyTerminalSurface } from "~/terminal/ghostty/surface";
 
-const EMPTY_SKILLS: ReadonlyArray<never> = [];
+const PREVIEW_SKILLS: ReadonlyArray<ServerProviderSkill> = [
+  { name: "frontend-design", path: ".agents/skills/frontend-design/SKILL.md", enabled: true },
+];
 
 const PROMPT_PREVIEW_TEXT =
   "Use $frontend-design to fix the flaky test in " +
@@ -34,9 +37,9 @@ export function PromptFontPreview() {
         value={prompt}
         cursor={cursor}
         contextRecords={EMPTY_COMPOSER_CONTEXT_RECORDS}
-        skills={EMPTY_SKILLS}
+        skills={PREVIEW_SKILLS}
         disabled={false}
-        placeholder={DISCONNECTED_COMPOSER_PLACEHOLDER}
+        placeholder={DEFAULT_COMPOSER_PLACEHOLDER}
         className="max-h-42 min-h-14"
         onChange={onChange}
         onPaste={noop}
@@ -57,10 +60,7 @@ const DIFF_PREVIEW_PATCH = [
   "",
 ].join("\n");
 
-// The interactive FileDiff's mount lifecycle can race that highlighter when the typography views
-// remount it (toggling Advanced) and lock in an unhighlighted frame; a static preview needs none
-// of that lifecycle, so it uses the deterministic renderer and injects the finished HTML into a
-// shadow root, exactly as FileDiff would.
+// FileDiff remounts can retain unhighlighted frames after a race; use static highlighted HTML in shadow DOM.
 const diffPreviewHtmlByTheme = new Map<DiffThemeName, Promise<readonly string[]>>();
 
 function loadDiffPreviewHtml(theme: DiffThemeName): Promise<readonly string[]> {
@@ -75,11 +75,7 @@ function loadDiffPreviewHtml(theme: DiffThemeName): Promise<readonly string[]> {
   return promise;
 }
 
-// Pierre's prerendered stylesheet bakes its own light/dark surface colors
-// into the shadow root's @layer rules. These unlayered rules win the cascade
-// without !important and re-point the surfaces at the app's code tokens
-// (custom properties inherit across the shadow boundary), so the preview
-// follows the active theme exactly like the real diff panel does.
+// Unlayered shadow-root rules override Pierre surfaces with app code tokens to match the diff panel.
 const DIFF_PREVIEW_THEME_BRIDGE = `
   :host {
     color: var(--code-foreground);
@@ -110,7 +106,7 @@ function StaticDiffHtml({ html }: { html: string }) {
 }
 
 export function CodeFontPreview() {
-  const { resolvedTheme } = useTheme();
+  const resolvedTheme = useRenderedAppearance();
   const themeName = resolveDiffThemeName(resolvedTheme);
   const [htmlByFile, setHtmlByFile] = useState<readonly string[] | null>(null);
   useEffect(() => {
@@ -144,7 +140,7 @@ const TERMINAL_PREVIEW_TRANSCRIPT =
   "\r\n" +
   "  \x1b[32m✓ 85 passed\x1b[0m   \x1b[33m△ 2 warnings\x1b[0m   \x1b[31m✗ 0 failed\x1b[0m\r\n" +
   "\r\n" +
-  "  \x1b[42;30m READY \x1b[0m \x1b[2mwatching for changes — press\x1b[0m \x1b[1mq\x1b[0m \x1b[2mto quit\x1b[0m\r\n" +
+  "  \x1b[42;30m READY \x1b[0m \x1b[2mwatching for changes, press\x1b[0m \x1b[1mq\x1b[0m \x1b[2mto quit\x1b[0m\r\n" +
   "\r\n" +
   TERMINAL_PROMPT;
 
@@ -166,8 +162,7 @@ export function TerminalFontPreview({ family, size }: { family: string; size: nu
     void surfaceRef.current?.setFont(previewTerminalFont(family, size));
   }, [family, size]);
 
-  // Re-read the terminal tokens on any theme change — switching between two
-  // palettes can leave resolvedTheme (light/dark) untouched.
+  // Palette changes may preserve light/dark mode; re-read terminal tokens for every theme change.
   useEffect(() => {
     const mount = mountRef.current;
     const surface = surfaceRef.current;

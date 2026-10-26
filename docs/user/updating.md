@@ -49,9 +49,10 @@ different value, use **Apply to all** in Settings after it connects.
 T3 Code must start again on that machine;
 the setting does not enable automatic startup. Terminal commands may still be
 interrupted, and threads without saved provider resume state need a new message.
-A thread that finished its turn to wait on a monitor, subagent, or background task
-is woken and told that this work stopped. A background shell, such as a dev server,
-does not wake it; the thread learns about it with your next message.
+A thread that finished its turn to wait on a subagent, a background task, or a
+command or monitor the agent said it was waiting on is woken and told that this work
+stopped. Other background shells and monitors, such as a dev server and its
+watchdog, do not wake it; the thread learns about them with your next message.
 A thread is not resumed while it waits for your approval, answer, or secret, or
 while it is archived, snoozed, or settled. After three automatic resumes in a row,
 the thread waits for your next message.
@@ -117,6 +118,15 @@ directory and pair with the running server.
 **Update all** updates every outdated provider on every connected environment
 at once. Hover it to see which providers it will update. Providers that only
 offer a manual update command are not included.
+
+After a successful provider CLI update, T3 Code refreshes model discovery for
+every enabled instance of that provider using its own configuration. Connected
+clients receive the refreshed catalogs automatically. Provider update checks
+must be enabled to download the latest T3 Code model catalog.
+
+Provider updates do not restart running chats. An existing session can keep
+using the previous CLI until it ends. If discovery fails, check the provider
+status and refresh it again.
 
 ## Mobile updates
 

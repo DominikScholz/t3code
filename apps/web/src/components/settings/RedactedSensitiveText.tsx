@@ -36,6 +36,7 @@ export function RedactedSensitiveText(props: {
   const value = props.value?.trim();
   const redacted = value ? redactedPlaceholder(value) : "";
 
+  // oxlint-disable-next-line t3code/react-effect-budget -- Cancel the fallback when a hide completes, reverses, or unmounts.
   useEffect(() => {
     if (visibility !== "hiding") return;
     // Theme changes can suppress the filter transition and its completion event.

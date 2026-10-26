@@ -1,5 +1,6 @@
 import { InfoIcon } from "lucide-react";
-import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { flushSync } from "react-dom";
 
 import { cn } from "~/lib/utils";
 import { Button } from "../ui/button";
@@ -31,10 +32,10 @@ export type ComposerBannerStackContent = Pick<
 type ComposerBannerStackEntry = ComposerBannerStackItem | ComposerBannerStackContent;
 
 function bannerPriority(item: ComposerBannerStackEntry) {
-  if (item.priority === "activity") {
+  if (item.priority === "urgent" || item.variant === "error" || item.variant === "warning") {
     return 0;
   }
-  if (item.priority === "urgent" || item.variant === "error" || item.variant === "warning") {
+  if (item.priority === "activity") {
     return 1;
   }
   return 2;
@@ -51,40 +52,25 @@ export function ComposerBannerStack({ className, items, attachedAbove }: Compose
   const noticesRef = useRef<HTMLDivElement>(null);
   const peekRef = useRef<HTMLButtonElement>(null);
   const expandedItemsRef = useRef<HTMLDivElement>(null);
-  const pendingFocusRef = useRef<"peek" | "notice" | null>(null);
   const expandedItemsId = useId();
   const [requestedExitingItemId, setExitingItemId] = useState<string | null>(null);
-  const dismissTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const exitingItemId =
     requestedExitingItemId !== null && items.some((item) => item.id === requestedExitingItemId)
       ? requestedExitingItemId
       : null;
 
-  useEffect(() => {
-    return () => {
-      if (dismissTimeoutRef.current) {
-        clearTimeout(dismissTimeoutRef.current);
-      }
-    };
-  }, []);
-
-  // A stack that shrinks to one banner collapses, so the next stack starts collapsed.
   if (items.length < 2 && stackExpanded) {
     setStackExpanded(false);
   }
 
-  useLayoutEffect(() => {
-    if (stackExpanded && pendingFocusRef.current === "notice") {
-      pendingFocusRef.current = null;
-      const firstControl = expandedItemsRef.current?.querySelector<HTMLElement>(
-        'button:not(:disabled), a[href], input:not(:disabled), [tabindex="0"]',
-      );
-      (firstControl ?? expandedItemsRef.current)?.focus({ preventScroll: true });
-    } else if (!stackExpanded && pendingFocusRef.current === "peek") {
-      pendingFocusRef.current = null;
-      peekRef.current?.focus({ preventScroll: true });
-    }
-  }, [stackExpanded]);
+  const expandAndFocusNotice = () => {
+    flushSync(() => setStackExpanded(true));
+    const container = expandedItemsRef.current;
+    const firstControl = container?.querySelector<HTMLElement>(
+      'button:not(:disabled), a[href], input:not(:disabled), [tabindex="0"]',
+    );
+    (firstControl ?? container)?.focus({ preventScroll: true });
+  };
 
   const orderedItems = items.toSorted((a, b) => bannerPriority(a) - bannerPriority(b));
   const frontItem = orderedItems[0];
@@ -107,13 +93,9 @@ export function ComposerBannerStack({ className, items, attachedAbove }: Compose
       return;
     }
     setExitingItemId(item.id);
-    if (dismissTimeoutRef.current) {
-      clearTimeout(dismissTimeoutRef.current);
-    }
-    dismissTimeoutRef.current = setTimeout(() => {
-      dismissTimeoutRef.current = null;
-      item.onDismiss?.();
-    }, DISMISS_TRANSITION_MS);
+    // A timer, not transitionend: the dismissal must commit even when the stack unmounts
+    // (thread switch) or a collapsed composer hides it mid-exit, and transitionend never fires then.
+    setTimeout(() => item.onDismiss?.(), DISMISS_TRANSITION_MS);
   };
 
   return (
@@ -121,12 +103,14 @@ export function ComposerBannerStack({ className, items, attachedAbove }: Compose
       {hasStack ? (
         <div
           ref={noticesRef}
+          data-composer-banner-stack="true"
           data-chat-composer-collapsed-controls="true"
           className={cn("relative z-20 min-h-3", stackExpanded && "z-50")}
           onPointerEnter={(event) => {
             if (event.pointerType === "touch") return;
             if (document.activeElement === peekRef.current) {
-              pendingFocusRef.current = "notice";
+              expandAndFocusNotice();
+              return;
             }
             setStackExpanded(true);
           }}
@@ -145,8 +129,8 @@ export function ComposerBannerStack({ className, items, attachedAbove }: Compose
             if (event.key !== "Escape" || !stackExpanded) return;
             event.preventDefault();
             event.stopPropagation();
-            pendingFocusRef.current = "peek";
-            setStackExpanded(false);
+            flushSync(() => setStackExpanded(false));
+            peekRef.current?.focus({ preventScroll: true });
           }}
         >
           {showCollapsedStackCap && firstStackedItem ? (
@@ -160,8 +144,7 @@ export function ComposerBannerStack({ className, items, attachedAbove }: Compose
               tabIndex={stackExpanded ? -1 : 0}
               onClick={(event) => {
                 event.currentTarget.focus({ preventScroll: true });
-                pendingFocusRef.current = "notice";
-                setStackExpanded(true);
+                expandAndFocusNotice();
               }}
               className={cn(stackExpanded && "pointer-events-none invisible opacity-0")}
             />
@@ -178,8 +161,7 @@ export function ComposerBannerStack({ className, items, attachedAbove }: Compose
               stackExpanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
             )}
           >
-            {/* Clip only the collapsing axis: at fractional widths a horizontal clip
-                shaves the notice's right border. */}
+            {/* Horizontal clipping shaves the right border at fractional widths. */}
             <div className="min-h-0 overflow-y-clip">
               <div
                 className={cn(
@@ -249,30 +231,38 @@ export function ComposerBannerStack({ className, items, attachedAbove }: Compose
   );
 }
 
-function NoticeDescription({ children }: { children: ReactNode }) {
-  const descriptionRef = useRef<HTMLSpanElement>(null);
+function NoticeText({
+  children,
+  className,
+  detailsLabel,
+}: {
+  readonly children: ReactNode;
+  readonly className: string;
+  readonly detailsLabel: string;
+}) {
+  const textRef = useRef<HTMLSpanElement>(null);
   const detailsRef = useRef<HTMLButtonElement>(null);
   const [showDetails, setShowDetails] = useState(false);
 
   useLayoutEffect(() => {
-    const description = descriptionRef.current;
-    if (!description) return;
+    const text = textRef.current;
+    if (!text) return;
     const measure = () => {
       // Ignore the space taken by the details button itself so it cannot
-      // sustain its own overflow after the description would otherwise fit.
+      // sustain its own overflow after the text would otherwise fit.
       const recoveredWidth = detailsRef.current ? detailsRef.current.offsetWidth + 4 : 0;
-      const hidden = getComputedStyle(description).position === "absolute";
+      const hidden = getComputedStyle(text).position === "absolute";
       setShowDetails(
         hidden ||
-          [description, ...description.querySelectorAll("*")].some(
+          [text, ...text.querySelectorAll("*")].some(
             (element) => element.scrollWidth > element.clientWidth + recoveredWidth,
           ),
       );
     };
     measure();
-    const stopObserving = observeResize(description, measure);
+    const stopObserving = observeResize(text, measure);
     const mutations = new MutationObserver(measure);
-    mutations.observe(description, { childList: true, subtree: true, characterData: true });
+    mutations.observe(text, { childList: true, subtree: true, characterData: true });
     return () => {
       stopObserving();
       mutations.disconnect();
@@ -281,10 +271,7 @@ function NoticeDescription({ children }: { children: ReactNode }) {
 
   return (
     <span className="contents">
-      <span
-        ref={descriptionRef}
-        className="w-0 min-w-0 grow truncate text-muted-foreground @max-[400px]:sr-only"
-      >
+      <span ref={textRef} className={className}>
         {children}
       </span>
       {showDetails ? (
@@ -296,7 +283,7 @@ function NoticeDescription({ children }: { children: ReactNode }) {
                 ref={detailsRef}
                 size="icon-xs"
                 variant="ghost-muted"
-                aria-label="Show notice details"
+                aria-label={detailsLabel}
                 className="flex-none"
               />
             }
@@ -353,8 +340,20 @@ function ComposerBannerStackAlert({
           {item.icon}
         </ComposerBanner.Icon>
         <ComposerBanner.Content className="whitespace-nowrap">
-          <span className="min-w-0 truncate font-medium leading-7 sm:leading-6">{item.title}</span>
-          {item.description ? <NoticeDescription>{item.description}</NoticeDescription> : null}
+          <NoticeText
+            detailsLabel="Show title details"
+            className="min-w-0 truncate font-medium leading-7 sm:leading-6"
+          >
+            {item.title}
+          </NoticeText>
+          {item.description ? (
+            <NoticeText
+              detailsLabel="Show notice details"
+              className="w-0 min-w-0 grow truncate text-muted-foreground @max-[400px]:sr-only"
+            >
+              {item.description}
+            </NoticeText>
+          ) : null}
         </ComposerBanner.Content>
         {item.actions || item.onDismiss ? (
           <ComposerBanner.Actions>

@@ -1,3 +1,4 @@
+import { Button } from "../../components/ui/Button";
 import {
   applyPullRequestDraftFilterChange,
   parsePullRequestQuery,
@@ -10,13 +11,12 @@ import { useAtomValue } from "@effect/atom-react";
 import {
   Keyboard,
   Platform,
-  Pressable,
   RefreshControl,
   ScrollView,
   View,
   type ScrollViewProps,
 } from "react-native";
-import { ScrollViewMarker } from "react-native-screens";
+import { NativeScrollViewMarker as ScrollViewMarker } from "../../native/NativeScrollViewMarker";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppText as Text } from "../../components/ui/AppText";
@@ -27,6 +27,7 @@ import { useProjects } from "../../state/entities";
 import { environmentServerConfigsAtom } from "../../state/server";
 import { PullRequestListRow } from "./PullRequestListRow";
 import { PullRequestListFilters } from "./PullRequestListFilters";
+import { PullRequestCardRow } from "./PullRequestControls";
 import { usePullRequestList } from "./usePullRequestList";
 import { usePullRequestListControls } from "./usePullRequestListControls";
 import { usePullRequestListActions } from "./usePullRequestListActions";
@@ -41,19 +42,36 @@ import {
 } from "./pullRequestList";
 import { useDebouncedValue } from "../../state/queries";
 import { useWorkspaceTabs } from "../workspace/WorkspaceTabsContext";
-import { useAndroidWorkspaceSelection } from "../workspace/useAndroidWorkspaceSelection";
+import { useSelectWorkspaceDetail } from "../workspace/useSelectWorkspaceDetail";
 
 function PullRequestScrollView(props: ScrollViewProps) {
-  const insets = useSafeAreaInsets();
   return (
     <ScrollViewMarker style={{ flex: 1 }}>
-      <ScrollView
-        {...props}
-        automaticallyAdjustContentInsets={false}
-        contentInsetAdjustmentBehavior="never"
-        contentOffset={props.contentOffset ?? { x: 0, y: -insets.top }}
-      />
+      <ScrollView {...props} />
     </ScrollViewMarker>
+  );
+}
+
+function PullRequestListErrors(props: { readonly messages: readonly string[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const title = `${props.messages.length} ${props.messages.length === 1 ? "error" : "errors"} loading pull requests`;
+  return (
+    <View>
+      <PullRequestCardRow
+        title={title}
+        icon="exclamationmark.triangle"
+        compact
+        last
+        expanded={expanded}
+        accessibilityLabel={`${title}. ${expanded ? "Hide" : "Show"} details`}
+        onPress={() => setExpanded((value) => !value)}
+      />
+      {expanded ? (
+        <Text selectable className="px-4 pb-3 text-sm text-foreground-muted">
+          {props.messages.join("\n")}
+        </Text>
+      ) : null}
+    </View>
   );
 }
 
@@ -70,7 +88,6 @@ export function PullRequestsScreen(
   const configs = useAtomValue(environmentServerConfigsAtom);
   const insets = useSafeAreaInsets();
   const [initialOffset] = useState(() => workspace.getScrollOffset("pullRequests"));
-  const [initialAnchor] = useState(() => workspace.getScrollAnchor("pullRequests"));
   const listRef = useRef<LegendListRef>(null);
   const tab = workspace.state.tabs.pullRequests;
   const maintainVisiblePosition = useMemo(
@@ -89,7 +106,7 @@ export function PullRequestsScreen(
   const environmentId = environments.some((item) => item.environmentId === selectedEnvironmentId)
     ? selectedEnvironmentId
     : null;
-  const selectAndroidWorkspace = useAndroidWorkspaceSelection();
+  const selectDetail = useSelectWorkspaceDetail();
   const selectPullRequest = useCallback(
     (item: EnvironmentPullRequestListEntry) => {
       Keyboard.dismiss();
@@ -101,10 +118,9 @@ export function PullRequestsScreen(
         host: item.host,
         initialSummary: item,
       };
-      if (Platform.OS === "android") selectAndroidWorkspace({ name: "PullRequest", params });
-      else navigation.navigate("PullRequest", params);
+      selectDetail({ name: "PullRequest", params });
     },
-    [navigation, selectAndroidWorkspace],
+    [selectDetail],
   );
   const allProjects = useProjects();
   const savedControls = listControls.controlsFor(environmentId);
@@ -175,8 +191,14 @@ export function PullRequestsScreen(
           ...facets.labels,
         ]),
       ].sort(),
+      labelColors: {
+        ...facets.labelColors,
+        ...(previous.environmentId === environmentId ? previous.labelColors : {}),
+      },
     }));
   }
+  const labelColors =
+    knownFacets.environmentId === environmentId ? knownFacets.labelColors : facets.labelColors;
   const projects = allProjects.filter(
     (project) =>
       !project.isScratch && (environmentId === null || project.environmentId === environmentId),
@@ -206,9 +228,6 @@ export function PullRequestsScreen(
         animated: false,
       });
   }, [tab.searchMode, tab.scrollOffset, insets.top]);
-  const initialIndex = initialAnchor
-    ? entries.findIndex((entry) => pullRequestKey(entry) === initialAnchor.key)
-    : -1;
 
   return (
     <View className={sidebar ? "flex-1 bg-drawer" : "flex-1 bg-screen"}>
@@ -233,23 +252,24 @@ export function PullRequestsScreen(
           />
         }
         alwaysBounceVertical
+        // Android flashes a list's scrollbar whenever it becomes visible, which was every return
+        // to this tab. The thread list shows none either.
+        showsVerticalScrollIndicator={Platform.OS !== "android"}
         recycleItems
         renderScrollComponent={Platform.OS === "ios" ? PullRequestScrollView : undefined}
-        contentInsetAdjustmentBehavior="never"
-        contentInset={Platform.OS === "ios" ? { top: insets.top } : undefined}
+        // UIKit owns the bar's inset, so a minimizing bar and a resized column move
+        // the list in the same frame as the bar.
+        contentInsetAdjustmentBehavior="automatic"
+        // A plain offset: LegendList adds the list header to an index-based restore, which
+        // landed every return one header lower.
         initialScrollOffset={
-          !initialAnchor && initialOffset > 0
-            ? initialOffset - (Platform.OS === "ios" ? insets.top : 0)
-            : undefined
-        }
-        initialScrollIndex={
-          initialIndex >= 0 && initialAnchor
-            ? { index: initialIndex, viewOffset: initialAnchor.viewOffset, viewPosition: 0 }
-            : undefined
+          initialOffset > 0 ? initialOffset - (Platform.OS === "ios" ? insets.top : 0) : undefined
         }
         contentInsetStartAdjustment={Platform.OS === "ios" ? insets.top : 0}
         contentContainerStyle={{
-          paddingBottom: Math.max(insets.bottom, workspace.bottomClearance),
+          paddingBottom:
+            Math.max(insets.bottom, workspace.bottomClearance) -
+            (Platform.OS === "ios" ? insets.bottom : 0),
         }}
         onScroll={(event) => {
           workspace.recordScrollOffset(
@@ -259,13 +279,6 @@ export function PullRequestsScreen(
               event.nativeEvent.contentOffset.y + (Platform.OS === "ios" ? insets.top : 0),
             ),
           );
-          const list = listRef.current?.getState();
-          const item = list ? entries[list.start] : undefined;
-          if (list && item)
-            workspace.recordScrollAnchor("pullRequests", {
-              key: pullRequestKey(item),
-              viewOffset: list.positionAtIndex(list.start) - event.nativeEvent.contentOffset.y,
-            });
         }}
         keyboardDismissMode="on-drag"
         keyboardShouldPersistTaps="handled"
@@ -273,6 +286,7 @@ export function PullRequestsScreen(
         ListHeaderComponent={
           <>
             <PullRequestListFilters
+              sidebar={sidebar}
               environments={environments.map((item) => ({
                 id: String(item.environmentId),
                 label: item.environmentLabel,
@@ -304,17 +318,27 @@ export function PullRequestsScreen(
               labels={
                 knownFacets.environmentId === environmentId ? knownFacets.labels : facets.labels
               }
+              labelColors={labelColors}
               projects={projects}
+              onSearch={(kind) =>
+                navigation.navigate("PullRequestFilterSearch", {
+                  kind,
+                  environmentId,
+                  environmentIds: targets.map((target) => String(target.environmentId)),
+                  suggestions:
+                    knownFacets.environmentId === environmentId ? knownFacets[kind] : facets[kind],
+                  labelColors,
+                })
+              }
             />
             {result.data?.errors.length ? (
-              <Text className="px-4 py-3 text-sm text-foreground-muted">
-                {result.data.errors
-                  .map(
-                    (error) =>
-                      `${error.projectTitle || environments.find((environment) => environment.environmentId === error.environmentId)?.environmentLabel || "Environment"}: ${error.message}`,
-                  )
-                  .join("\n")}
-              </Text>
+              <PullRequestListErrors
+                key={JSON.stringify(targets)}
+                messages={result.data.errors.map(
+                  (error) =>
+                    `${error.projectTitle || environments.find((environment) => environment.environmentId === error.environmentId)?.environmentLabel || "Environment"}: ${error.message}`,
+                )}
+              />
             ) : null}
           </>
         }
@@ -327,15 +351,23 @@ export function PullRequestsScreen(
               />
             </View>
           ) : result.loadMoreError ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Retry loading more pull requests"
-              onPress={() => void result.loadMore(true)}
-              className="items-center gap-2 px-8 py-4"
-            >
+            <View className="items-center gap-2 px-8 py-4">
               <Text className="text-xs text-foreground-muted">{result.loadMoreError}</Text>
-              <Text className="text-sm font-t3-medium text-link">Try again</Text>
-            </Pressable>
+              <Button
+                label="Try again"
+                accessibilityLabel="Retry loading more pull requests"
+                onPress={() => void result.loadMore(true)}
+              />
+            </View>
+          ) : result.hasMore ? (
+            // A filtered page can be too short to scroll, which leaves nothing to reach the end of.
+            <View className="items-center py-4">
+              <Button
+                label="Load more"
+                accessibilityLabel="Load more pull requests"
+                onPress={() => void result.loadMore()}
+              />
+            </View>
           ) : undefined
         }
         ListEmptyComponent={

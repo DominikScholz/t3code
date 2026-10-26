@@ -15,6 +15,7 @@ import { environmentAtomList, environmentIdsKey } from "../../state/environmentA
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
+import { useNowMinute } from "../../hooks/useNowMinute";
 import { Button } from "../ui/button";
 import { toastManager } from "../ui/toast";
 
@@ -33,7 +34,6 @@ import {
   SettingsPageContainer,
   SettingsRow,
   SettingsSection,
-  useRelativeTimeTick,
 } from "./settingsLayout";
 import { DatabaseStorageNotice } from "./DatabaseStorageNotice";
 import { SettingsScopeNotice } from "./SettingsScopeNotice";
@@ -173,7 +173,6 @@ const KEEP_WHEN_LABELS = {
   "tracked-changes": "Edited tracked files",
 } as const;
 
-/** One line for the last-run fold; identical results across machines collapse into one. */
 function lastRunSummary(
   entries: readonly { readonly label: string; readonly counts: string }[],
   machineCount: number,
@@ -192,7 +191,7 @@ function CleanupResults({
   environmentLabel,
 }: {
   report: StorageCleanupReport;
-  environmentLabel: string | undefined;
+  environmentLabel: string;
 }) {
   return (
     <>
@@ -208,13 +207,34 @@ function CleanupResults({
         return (
           <SettingsRow
             key={`${entry.path ?? entry.kind}:${entry.threadId ?? index}`}
-            title={environmentLabel ? `${environmentLabel}: ${name}` : name}
+            title={<span className="wrap-anywhere select-text">{name}</span>}
             description={
-              <span
-                className={`wrap-anywhere ${entry.outcome === "failed" ? "text-destructive" : ""}`}
-              >
-                {entry.threadTitle && entry.threadTitle !== name ? `${entry.threadTitle}. ` : ""}
-                {entry.reason}
+              <span className="block space-y-2 wrap-anywhere select-text">
+                <span className={`block ${entry.outcome === "failed" ? "text-destructive" : ""}`}>
+                  {entry.reason}
+                </span>
+                <span className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 border-l border-border/60 pl-3">
+                  <span>Machine</span>
+                  <span className="text-foreground/80">{environmentLabel}</span>
+                  {entry.projectPath && (
+                    <>
+                      <span>Project</span>
+                      <code className="text-foreground/80">{entry.projectPath}</code>
+                    </>
+                  )}
+                  {entry.path && (
+                    <>
+                      <span>Folder</span>
+                      <code className="text-foreground/80">{entry.path}</code>
+                    </>
+                  )}
+                  {entry.threadTitle && (
+                    <>
+                      <span>Thread</span>
+                      <span>{entry.threadTitle}</span>
+                    </>
+                  )}
+                </span>
               </span>
             }
             control={
@@ -237,13 +257,12 @@ function CleanupResults({
       })}
       {report.omittedCount > 0 && (
         <p className="px-3 py-2.5 text-xs text-muted-foreground sm:px-4">
-          {environmentLabel ? `${environmentLabel}: ` : ""}
-          {report.omittedCount.toLocaleString()} more results.
+          {environmentLabel}: {report.omittedCount.toLocaleString()} more results.
         </p>
       )}
       {report.entries.length === 0 && report.omittedCount === 0 && (
         <p className="px-3 py-2.5 text-xs text-muted-foreground sm:px-4">
-          {environmentLabel ? `${environmentLabel}: ` : ""}Nothing needed cleanup.
+          {environmentLabel}: Nothing needed cleanup.
         </p>
       )}
     </>
@@ -260,7 +279,8 @@ const storageCleanupPermissionsAtom = environmentAtomList(
 );
 
 function CleanupSection() {
-  useRelativeTimeTick(60_000);
+  const nowMinute = useNowMinute();
+  const nowMs = Date.parse(`${nowMinute}:00.000Z`);
   const { connectedEnvironments } = useSettingsScope();
   const [pending, setPending] = useState(false);
   const run = useAtomCommand(serverEnvironment.runStorageCleanup);
@@ -311,7 +331,7 @@ function CleanupSection() {
         ? `${report.counts.removed} removed, ${report.counts.kept} kept${report.counts.failed > 0 ? `, ${report.counts.failed} failed` : ""}`
         : "",
       description: report
-        ? `Last run ${formatRelativeTimeLabel(report.finishedAt)}. ${formatBytes(report.bytesFreed)} recovered.${report.counts.failed > 0 ? ` ${report.counts.failed} ${report.counts.failed === 1 ? "item" : "items"} couldn't be removed.` : ""}`
+        ? `Last run ${formatRelativeTimeLabel(report.finishedAt, nowMs)}. ${formatBytes(report.bytesFreed)} recovered.${report.counts.failed > 0 ? ` ${report.counts.failed} ${report.counts.failed === 1 ? "item" : "items"} couldn't be removed.` : ""}`
         : query?.failed
           ? "Could not load the last run."
           : query?.loading
@@ -392,7 +412,7 @@ function CleanupSection() {
                 <CleanupResults
                   key={environment.environmentId}
                   report={report}
-                  environmentLabel={connectedEnvironments.length > 1 ? label : undefined}
+                  environmentLabel={label}
                 />
               ),
           )}
@@ -471,19 +491,14 @@ export function StorageSettingsPanel() {
 
   return (
     <SettingsPageContainer>
-      {!isProjectScope &&
-        connectedEnvironments
-          .filter(
+      {!isProjectScope && (
+        <DatabaseStorageNotice
+          environments={connectedEnvironments.filter(
             (environment) =>
               environment.serverConfig?.environment.capabilities.databaseStorage === true,
-          )
-          .map((environment) => (
-            <DatabaseStorageNotice
-              key={environment.environmentId}
-              environmentId={environment.environmentId}
-              label={environment.label}
-            />
-          ))}
+          )}
+        />
+      )}
       <SettingsSection id="storage-worktrees" title="Worktrees">
         {!isProjectScope && <WorktreesDirectoryRow />}
         {isProjectScope && (
