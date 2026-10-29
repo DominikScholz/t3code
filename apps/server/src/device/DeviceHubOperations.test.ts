@@ -27,9 +27,11 @@ const operations = (simctl: { stdout: string; code: number }) =>
         ),
       ),
     ),
-    run: (command) =>
+    run: (command, args) =>
       Effect.succeed(
-        command === "xcrun" ? { ...simctl, stderr: "" } : { stdout: "", stderr: "", code: 0 },
+        command === "xcrun" && args.join(" ") === "simctl list -j"
+          ? { ...simctl, stderr: "" }
+          : { stdout: "", stderr: "", code: 1 },
       ),
     androidAvailable: Effect.succeed(false),
   });
