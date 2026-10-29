@@ -28,6 +28,8 @@ screen = bpy.data.objects[screen_name]
 objects = [o for o in body.children_recursive if o.type == "MESH"]
 if body.type == "MESH":
     objects.append(body)
+# Some sources stack every colour variant's back glass; keep one.
+objects = [o for o in objects if o.name not in model.get("excludeNodes", [])]
 uv = screen.data.uv_layers.active
 points = []
 coords = []
