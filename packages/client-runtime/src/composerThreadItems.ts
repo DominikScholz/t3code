@@ -5,10 +5,17 @@ import {
   type ScopedThreadRef,
   type ThreadId,
 } from "@t3tools/contracts";
-import { foldSearchQuery, rankSearchItems, scoreThreadSearch } from "@t3tools/shared/paletteSearch";
+import {
+  foldSearchQuery,
+  rankSearchItems,
+  scoreThreadSearch,
+  startsSearchWord,
+} from "@t3tools/shared/paletteSearch";
 
 import type { EnvironmentThreadShell } from "./state/models.ts";
 import { threadSearchSubject, type ThreadSearchShell } from "./state/threadSearch.ts";
+import { mFallback, msg } from "gt-i18n";
+import type { MFunctionType } from "gt-i18n/types";
 
 const COMPOSER_THREAD_RESULT_LIMIT = 5;
 
@@ -29,16 +36,19 @@ export interface ComposerThreadItem {
  * and on the machines it links to, so candidates stay within those, and a linked
  * machine's threads say which machine they are on.
  */
-export function matchComposerThreadItems(input: {
-  shells: ReadonlyArray<ComposerThreadCandidate>;
-  environmentId: EnvironmentId;
-  /** The machines the composer's environment links to, by name. */
-  linkedEnvironments: ReadonlyMap<EnvironmentId, string>;
-  excludeThreadId: ThreadId | null;
-  query: string;
-  /** Recency is measured against this time. */
-  now: number;
-}): ComposerThreadItem[] {
+export function matchComposerThreadItems(
+  input: {
+    shells: ReadonlyArray<ComposerThreadCandidate>;
+    environmentId: EnvironmentId;
+    /** The machines the composer's environment links to, by name. */
+    linkedEnvironments: ReadonlyMap<EnvironmentId, string>;
+    excludeThreadId: ThreadId | null;
+    query: string;
+    /** Recency is measured against this time. */
+    now: number;
+  },
+  resolve: MFunctionType = mFallback,
+): ComposerThreadItem[] {
   const query = foldSearchQuery(input.query);
   if (query.length === 0) return [];
   const candidates = input.shells.filter(
@@ -66,7 +76,10 @@ export function matchComposerThreadItems(input: {
         type: "thread",
         thread: { environmentId: shell.environmentId, threadId: shell.id },
         label: shell.title,
-        description: machine === undefined ? "Thread" : `Thread on ${machine}`,
+        description:
+          machine === undefined
+            ? resolve(msg("Thread", { $context: "noun, search result type" }))
+            : resolve(msg("Thread on {machine}", { machine })),
       };
     });
 }
@@ -91,18 +104,21 @@ export interface ComposerEnvironmentItem {
  * composer's own environment is left out. Like threads, they need a query: bare `@` stays a
  * file picker.
  */
-export function matchComposerEnvironmentItems(input: {
-  environments: ReadonlyArray<ComposerEnvironmentCandidate>;
-  environmentId: EnvironmentId;
-  query: string;
-}): ComposerEnvironmentItem[] {
-  const query = input.query.trim().toLowerCase();
+export function matchComposerEnvironmentItems(
+  input: {
+    environments: ReadonlyArray<ComposerEnvironmentCandidate>;
+    environmentId: EnvironmentId;
+    query: string;
+  },
+  resolve: MFunctionType = mFallback,
+): ComposerEnvironmentItem[] {
+  const query = foldSearchQuery(input.query);
   if (query.length === 0) return [];
   return input.environments
     .filter(
       (environment) =>
         environment.environmentId !== input.environmentId &&
-        environment.label.toLowerCase().includes(query),
+        startsSearchWord(environment.label, query),
     )
     .map((environment) => ({
       id: `environment:${environment.environmentId}`,
@@ -110,6 +126,31 @@ export function matchComposerEnvironmentItems(input: {
       environmentId: environment.environmentId,
       machine: environment.machine,
       label: environment.label,
-      description: "Machine",
+      description: resolve(msg("Machine", { $context: "noun, search result type" })),
     }));
+}
+
+/**
+ * Orders `@` results by how surely they are what was typed: a file with exactly that name, then
+ * machines, threads with a word starting with it, models (in their own order), files starting
+ * with it, and the rest.
+ */
+export function rankComposerMentionItems<
+  T extends { readonly type: string; readonly label: string; readonly pathKind?: string },
+>(items: ReadonlyArray<T>, rawQuery: string): T[] {
+  const query = foldSearchQuery(rawQuery);
+  if (query.length === 0) return [...items];
+  const rank = ({ type, label, pathKind }: T) => {
+    if (type === "environment") return 1;
+    if (type === "model") return 2;
+    if (type === "thread") return startsSearchWord(label, query) ? 2 : 4;
+    const name = foldSearchQuery(label);
+    if (pathKind === "file" && (name === query || name.startsWith(`${query}.`))) return 0;
+    return name.startsWith(query) ? 3 : 5;
+  };
+  // Hermes lacks toSorted.
+  return items
+    .map((item) => ({ item, rank: rank(item) }))
+    .sort((left, right) => left.rank - right.rank)
+    .map(({ item }) => item);
 }
