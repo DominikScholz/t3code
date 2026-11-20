@@ -7,15 +7,25 @@ export const COMPOSER_UNDO_GROUP_DELAY = 1000;
 
 export type ComposerChangeKind = "insert" | "delete" | "other";
 
-/** Tag custom paste/cut dispatches; ProseMirror only tags its built-in paths. */
+const CLIPBOARD_EDIT_META = "composerClipboardEdit";
+
+/**
+ * Tag custom paste/cut dispatches; ProseMirror only tags its built-in paths.
+ * Not `uiEvent`: Tiptap's paste rules would style the already parsed paste a second time.
+ */
 export function markAsClipboardEdit(tr: Transaction, event: "paste" | "cut"): Transaction {
-  return tr.setMeta("uiEvent", event);
+  return tr.setMeta(CLIPBOARD_EDIT_META, event);
+}
+
+export function isClipboardEdit(tr: Transaction): boolean {
+  return tr.getMeta(CLIPBOARD_EDIT_META) != null;
 }
 
 function changeKindOf(tr: Transaction): ComposerChangeKind | null {
   if (!tr.docChanged) return null;
   const uiEvent = tr.getMeta("uiEvent");
   if (uiEvent === "paste" || uiEvent === "drop" || uiEvent === "cut") return "other";
+  if (isClipboardEdit(tr)) return "other";
   // IME input replaces its own range on each keystroke; it is still typing.
   if (tr.getMeta("composition") != null) return "insert";
   let kind: ComposerChangeKind | null = null;
