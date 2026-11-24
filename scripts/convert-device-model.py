@@ -3,7 +3,8 @@
 # Then optimize using @gltf-transform/cli 4.2.1 with --compress false --simplify false
 # --join false --palette false --flatten false --texture-size 1024 --texture-compress webp,
 # then `weld` and `meshopt --quantization-volume scene --quantize-position 16`. Per-mesh grids
-# move coincident layers apart and z-fight; see docs/internals/devices.md#3d-device-models.
+# move coincident layers apart and z-fight. Never simplify: even 1e-5 error seams the Duo's inner
+# displays. Display meshes stay quantized; modelScene.ts bakes them back to float at load.
 import hashlib
 import json
 import sys
